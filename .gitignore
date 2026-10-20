@@ -1,0 +1,51 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri build output — large and regenerable
+src-tauri/target
+
+# Screenshots written by the verify scripts
+shots
+shots-*
+
+# Museum artifact scans are never committed. They belong to the collection, and a public
+# repo would make them publicly downloadable. Artifacts are added at runtime by the user
+# and shared as exported gallery .zip files, not baked into the app.
+public/artifacts
+*.fbx
+*.glb
+*.gltf
+*.obj
+*.stl
+*.ply
+*.usd
+*.usdz
+artifact-gallery-*.zip
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Starter gallery scans for local runs and desktop builds only — see src/library/seed.ts.
+public/seed/
+
+# Curatorial planning documents (install plans, pairing sheets) — reference only, not app source.
+BM*.pdf
