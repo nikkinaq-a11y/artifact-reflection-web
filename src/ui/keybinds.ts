@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useViewer } from '../store';
+import { PLACEMENT } from '../scene/presets';
 
 /**
  * Matches the BP_KeyboardControls legend so muscle memory, any existing demo script, and
@@ -7,8 +8,8 @@ import { useViewer } from '../store';
  *   C camera · O object · R rotate · P scale · H height · K width · L length · Tab help
  * Shift reverses the adjustment, exactly as the Unreal legend describes.
  *
- * B, V and F are the additions the baseline viewer already made: background theme,
- * hiding the pedestal, and the front light BP_PhotoViewerController defines but never
+ * V and F are additions the baseline viewer already made: hiding the pedestal and the
+ * front light BP_PhotoViewerController defines but never
  * binds. They keep their meanings here.
  *
  * Everything else is new, and all of it is the acrylic sheet. The grouping is
@@ -24,11 +25,26 @@ import { useViewer } from '../store';
  *
  * The gallery is deliberately not bound to a key: it lives behind a permanent tab in the
  * corner so it is discoverable without knowing a shortcut.
+ *
+ * The BM38–49 install plan added a second object and the stand under it:
+ *
+ *   objects     T second object on/off · 1 / 2 which one the keys act on
+ *   stand       E base (riser) on/off · Y plinth on/off
+ *   placement   arrows move the active object 1 cm (Shift 10) — along the wall, and
+ *               toward / away from the sheet
+ *
+ * Every per-object key (O R P H K L V G E, arrows) acts on the active object.
  */
 export function useKeybinds() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLSelectElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
 
       const s = useViewer.getState();
       const dir = e.shiftKey ? -1 : 1;
@@ -40,9 +56,6 @@ export function useKeybinds() {
           break;
         case 'KeyO':
           s.stepObject(dir);
-          break;
-        case 'KeyB':
-          s.toggleStudioTheme();
           break;
         case 'KeyV':
           s.togglePedestal();
@@ -68,7 +81,7 @@ export function useKeybinds() {
 
         // ── The acrylic sheet ───────────────────────────────────────────────────
         case 'KeyG':
-          s.adjustPanel('gapCm', dir);
+          s.adjustGap(dir);
           break;
         case 'KeyN':
           s.adjustPanel('widthCm', dir);
@@ -87,6 +100,48 @@ export function useKeybinds() {
           break;
         case 'KeyA':
           s.stepArt(dir);
+          break;
+
+        // ── Two objects and their stands ─────────────────────────────────────────
+        case 'KeyT':
+          s.toggleTwoUp();
+          break;
+        case 'Digit1':
+          s.setActive('A');
+          break;
+        case 'Digit2':
+          s.setActive('B');
+          break;
+        case 'KeyE':
+          s.toggleBase();
+          break;
+        case 'KeyY':
+          s.togglePlinth();
+          break;
+        case 'ArrowLeft':
+        case 'ArrowRight':
+        case 'ArrowUp':
+        case 'ArrowDown': {
+          e.preventDefault();
+          // Same rule as dragging: a stand moves only once it has been confirmed.
+          if (s.moveUnlocked !== s.active) {
+            s.askMove(s.active);
+            break;
+          }
+          const d = (e.shiftKey ? 10 : 1) * PLACEMENT.nudgeCm;
+          // Up is away from the viewer, which from any front-side camera is toward the sheet.
+          const dx = e.code === 'ArrowLeft' ? -d : e.code === 'ArrowRight' ? d : 0;
+          const dz = e.code === 'ArrowUp' ? -d : e.code === 'ArrowDown' ? d : 0;
+          s.nudgeActive(dx, dz);
+          break;
+        }
+
+        case 'KeyI':
+          // Snapshot — the capture itself runs inside the Canvas (scene/Snapshot.tsx).
+          s.requestSnapshot();
+          break;
+        case 'Escape':
+          s.lockMove();
           break;
 
         case 'Tab':

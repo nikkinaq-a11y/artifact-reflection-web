@@ -238,6 +238,7 @@ export function Acrylic() {
   const target = useReflectionTarget();
 
   const { width, height, centreY } = usePanelGeometry();
+  const pinned = useViewer((s) => s.panel.heightCm !== null);
   const art = useArtTexture();
 
   const reflectance = useViewer((s) => s.reflectance);
@@ -286,13 +287,20 @@ export function Acrylic() {
     // normally fills it exactly. This still fits rather than stretches, because the
     // fallback sheet has no artwork to take its shape from and a mid-import frame can
     // land here with the old geometry and the new image.
+    //
+    // A pinned height is different: the glass is a given size and the print is cut to
+    // it, so the image is cropped to cover the sheet, centred — the way BM49 is a detail
+    // of Los borrachos rather than the whole canvas shrunk onto smaller glass.
     if (art) {
       const sheetAspect = width / height;
-      const fit = art.aspect > sheetAspect ? [1, sheetAspect / art.aspect] : [art.aspect / sheetAspect, 1];
+      const wider = art.aspect > sheetAspect;
+      const fit = pinned
+        ? wider ? [art.aspect / sheetAspect, 1] : [1, sheetAspect / art.aspect]
+        : wider ? [1, sheetAspect / art.aspect] : [art.aspect / sheetAspect, 1];
       material.uniforms.uArtScale.value.set(fit[0], fit[1]);
       material.uniforms.uArtOffset.value.set((1 - fit[0]) / 2, (1 - fit[1]) / 2);
     }
-  }, [material, art, width, height]);
+  }, [material, art, width, height, pinned]);
 
   useEffect(() => {
     material.uniforms.uReflectance.value = reflectance;

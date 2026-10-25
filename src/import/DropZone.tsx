@@ -21,6 +21,8 @@ export function DropZone() {
   const importing = useViewer((s) => s.importing);
   const importError = useViewer((s) => s.importError);
   const setImportError = useViewer((s) => s.setImportError);
+  const [notesReduced, setNotesReduced] = useState(false);
+  useEffect(() => setNotesReduced(false), [importError]);
   const artifacts = useViewer((s) => s.artifacts);
   const artworks = useViewer((s) => s.artworks);
 
@@ -110,14 +112,35 @@ export function DropZone() {
         </div>
       )}
 
-      {importError && (
-        <div className="toast" role="alert">
-          {importError}
-          <button type="button" onClick={() => setImportError(null)}>
-            Dismiss
+      {/* A station's notes can run to a paragraph; reduced, they wait in the corner as a
+          chip instead of sitting over the scene. A new message always opens full size. */}
+      {importError &&
+        (notesReduced ? (
+          <button
+            type="button"
+            className="toast toast-chip"
+            onClick={() => setNotesReduced(false)}
+            title="Show notes"
+          >
+            Notes ▴
           </button>
-        </div>
-      )}
+        ) : (
+          <div className="toast" role="alert">
+            <span className="toast-text">{importError}</span>
+            <button type="button" onClick={() => setImportError(null)}>
+              Dismiss
+            </button>
+            <button
+              type="button"
+              className="toast-reduce"
+              onClick={() => setNotesReduced(true)}
+              title="Reduce"
+              aria-label="Reduce notes"
+            >
+              –
+            </button>
+          </div>
+        ))}
 
       {artifacts.length === 0 && !importing && (
         <div className="empty">

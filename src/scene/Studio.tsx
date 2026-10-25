@@ -1,5 +1,6 @@
 import { useViewer } from '../store';
 import { PANEL_Z, STUDIO_THEMES } from './presets';
+import { Plinth } from './Pedestal';
 
 /**
  * The room from BP_RoomRig / the Cube..Cube5 wall actors.
@@ -22,7 +23,7 @@ const ROOM = {
 
 export function Studio() {
   const theme = useViewer((s) => s.studioTheme);
-  const { wall: wallColor, floor: floorColor } = STUDIO_THEMES[theme];
+  const { wall: wallColor, floor: floorColor, floorRoughness } = STUDIO_THEMES[theme];
 
   const { width, height, depth, thickness, standoff } = ROOM;
 
@@ -35,7 +36,7 @@ export function Studio() {
       {/* Floor */}
       <mesh receiveShadow position={[0, -thickness / 2, floorCentreZ]}>
         <boxGeometry args={[width, thickness, depth]} />
-        <meshStandardMaterial color={floorColor} roughness={0.92} metalness={0} />
+        <meshStandardMaterial color={floorColor} roughness={floorRoughness} metalness={0} />
       </mesh>
 
       {/* Back wall — what the acrylic is mounted on, and the surround the print sits in */}
@@ -53,6 +54,8 @@ export function Studio() {
         <boxGeometry args={[thickness, height, depth]} />
         <meshStandardMaterial color={wallColor} roughness={0.95} metalness={0} />
       </mesh>
+
+      <Plinth roomWidth={width - thickness} backFaceZ={backFaceZ} />
     </group>
   );
 }

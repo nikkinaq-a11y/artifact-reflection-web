@@ -39,23 +39,51 @@ body,
 .hud {
   left: 20px;
   bottom: 20px;
-  padding: 12px 16px;
+  /* Padding lives on the two children instead, so the collapsed panel is exactly the
+     size of its tab — the same construction as the gallery. */
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
 }
 
-/* The camera readout is the one value that changes as you work through the presets,
-   so it gets its own emphasised block above the rest of the specs. */
-.hud-cam {
+/* The camera readout, and the control that collapses everything under it. */
+.hud-tab {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
+  padding: 11px 15px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
   white-space: nowrap;
+  cursor: pointer;
+  /* .hud switches pointer events off so the readout never swallows a drag meant for the
+     canvas behind it. The one control inside it has to opt back in. */
+  pointer-events: auto;
+}
+
+.hud:not(.is-closed) .hud-tab {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hud-tab:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.hud-chevron {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.hud-body {
+  padding: 9px 15px 11px;
 }
 
 .hud-cam-index {
@@ -583,4 +611,417 @@ body,
 
 .gallery-seg button.is-on span {
   color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Stage panel — typed centimetres for the install plan ──────────────────── */
+
+.stage {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 340px;
+  max-height: calc(100% - 40px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(8px);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  overflow: hidden;
+  z-index: 2;
+}
+
+.stage.is-closed {
+  width: auto;
+}
+
+.stage:not(.is-closed) .gallery-tab {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stage-body {
+  overflow-y: auto;
+  padding: 4px 13px 12px;
+}
+
+.stage section {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.stage h4 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.stage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.stage-row > span:first-child,
+.stage-check {
+  flex: 0 0 92px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.stage-row em,
+.stage-row i {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.stage-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.stage-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stage-num {
+  width: 58px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  font: inherit;
+  color: #fff;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-num:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.stage-num::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.stage select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  background: #15151a;
+  font: inherit;
+  color: #fff;
+}
+
+.stage-station {
+  width: 100%;
+}
+
+.stage-seg {
+  padding: 0 0 8px;
+}
+
+.stage-hint {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+/* Moving an object, not orbiting — the canvas says so for the length of the drag. */
+.app.is-dragging canvas {
+  cursor: grabbing !important;
+}
+
+/* With the stage panel open the HUD keeps only what is staged — camera, station, object,
+   print. Every measurement below that is in the panel, editable, and two copies of it
+   stacked down the left edge run into each other on a laptop screen. */
+.app.stage-open .hud .hud-sep,
+.app.stage-open .hud .hud-sep ~ .hud-row {
+  display: none;
+}
+
+/* "Move pedestal?" — anchored to the selected stand in the scene. */
+.move-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(10, 10, 12, 0.86);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  color: #fff;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.move-prompt button {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.move-prompt button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.move-prompt button.is-primary {
+  border-color: #fff;
+  background: #fff;
+  color: #111;
+}
+
+/* Saved setups */
+.stage-name {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  font: inherit;
+  color: #fff;
+}
+
+.stage-name:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.stage-name::placeholder {
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.stage-btn {
+  padding: 4px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stage-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stage-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.stage-btn.is-primary {
+  border-color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.9);
+  color: #111;
+}
+
+.stage-btn.is-danger {
+  border-color: #d9534f;
+  color: #ff8a85;
+}
+
+.stage-update {
+  width: 100%;
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-setups {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.stage-setups li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.stage-setup-load {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stage-setup-load:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stage-setups li.is-active .stage-setup-load {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.stage-setup-load span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-setup-load em {
+  flex: none;
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+/* The install plan's recommended pairing, pinned to the top of the objects list. */
+.gallery-rec .gallery-index {
+  color: rgba(255, 220, 140, 0.9);
+}
+
+.gallery-rec.is-last {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.gallery-rec .gallery-pick:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The notes box can be reduced to a chip, like the readout and the panels. */
+.toast-text {
+  flex: 1;
+}
+
+.toast .toast-reduce {
+  padding: 2px 8px;
+}
+
+.toast.toast-chip {
+  max-width: none;
+  padding: 7px 12px;
+  font: inherit;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* The right edge: snapshot above brightness. One column, centred top to bottom, clear of the
+   gallery tab and the corner panels — the baseline viewer's rail. */
+.right-rail {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.rail-slider,
+.rail-button {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  user-select: none;
+  pointer-events: auto;
+}
+
+.rail-slider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 10px 13px;
+}
+
+.rail-slider-label {
+  width: 64px;
+  text-align: center;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.rail-slider-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-slider input {
+  /* Vertical, with the maximum at the top. */
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 18px;
+  height: 110px;
+  margin: 4px 0 0;
+  accent-color: #d8d8dc;
+  cursor: ns-resize;
+}
+
+.rail-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 86px;
+  padding: 9px 6px 8px;
+  cursor: pointer;
+}
+
+.rail-button:hover {
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+
+/* Neutral confirmation — snapshot saved. Centred at the bottom, clear of the readout on
+   the left and the notes box on the right. */
+.notice {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 40px));
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.88);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }

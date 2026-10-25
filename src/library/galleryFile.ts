@@ -2,14 +2,19 @@ import { unzip, zip } from 'fflate';
 import {
   clearArtifacts,
   clearArtworks,
+  clearSetups,
   listArtifactRecords,
   listArtworkRecords,
+  listSetups,
   putArtifact,
   putArtwork,
+  putSetup,
+  type SetupRecord,
   type ArtifactRecord,
   type ArtworkRecord,
 } from './db';
 import type { SupportedFormat } from '../import/loadModel';
+import type { Slot, SlotId } from '../store';
 
 /**
  * A curated pairing saved as a single .zip: every object's original bytes, any sidecar
@@ -32,11 +37,18 @@ import type { SupportedFormat } from '../import/loadModel';
 
 export const GALLERY_FORMAT_VERSION = 1;
 
+/**
+ * Fields marked v1 are what the first release wrote, describing a single object. They
+ * are still written, from slot A, so an older build can open a newer gallery; a newer
+ * build reading an older gallery builds slot A from them. Everything added since is
+ * optional and additive, which is why the format version has not moved.
+ */
 export type SceneSettings = {
-  pedestal: { widthCm: number; lengthCm: number; heightCm: number };
-  pedestalVisible: boolean;
-  /** The acrylic sheet's width, mount height and distance from the object, in cm. */
-  panel: { widthCm: number; bottomCm: number; gapCm: number };
+  /** v1 — slot A's pedestal. */
+  pedestal?: { widthCm: number; lengthCm: number; heightCm: number };
+  pedestalVisible?: boolean;
+  /** The acrylic sheet's width, mount height and (v1) slot A's distance from it, in cm. */
+  panel: { widthCm: number; bottomCm: number; gapCm?: number; heightCm?: number | null };
   /** Fresnel F0 of the sheet. */
   reflectance: number;
   /** Surface finish: 0 mirror-sharp, 1 diffused. */
@@ -44,11 +56,22 @@ export type SceneSettings = {
   /** Brightness of the print. */
   print: number;
   lights: Record<string, { on: boolean; intensity: number }>;
+  /** Index into LIGHT_LEVELS — the brightness slider. Optional: older galleries have none. */
+  lightLevel?: number;
   studioTheme: string;
-  objectScale: number;
+  /** v1 — slot A's scale. */
+  objectScale?: number;
   camIndex: number;
   /** Which artwork is on the sheet; -1 is a bare sheet. */
   artIndex: number;
+
+  /** Both objects' placement, stands and turn. */
+  slots?: Record<SlotId, Slot>;
+  twoUp?: boolean;
+  active?: SlotId;
+  plinth?: { on: boolean; heightCm: number };
+  /** The install-plan station the scene was staged from, if any. */
+  station?: string | null;
 };
 
 type ManifestArtifact = {
@@ -61,6 +84,7 @@ type ManifestArtifact = {
   addedAt: number;
   scaleMultiplier: number;
   yawOffsetDeg: number;
+  heightCm?: number;
   untextured: boolean;
 };
 
@@ -81,6 +105,8 @@ type Manifest = {
   settings: SceneSettings;
   artifacts: ManifestArtifact[];
   artworks: ManifestArtwork[];
+  /** Saved setups. Optional: older galleries have none, and older builds ignore it. */
+  setups?: SetupRecord[];
 };
 
 const enc = new TextEncoder();
@@ -93,9 +119,10 @@ const extFor = (format: SupportedFormat, name: string) =>
   /\.[^.]+$/.test(name) ? '' : `.${format === 'gltf' ? 'glb' : format}`;
 
 export async function exportGallery(settings: SceneSettings): Promise<Blob> {
-  const [records, artworkRecords] = await Promise.all([
+  const [records, artworkRecords, setups] = await Promise.all([
     listArtifactRecords(),
     listArtworkRecords(),
+    listSetups(),
   ]);
 
   // A sheet with only a print on it is a legitimate thing to hand someone, so an export
@@ -128,6 +155,7 @@ export async function exportGallery(settings: SceneSettings): Promise<Blob> {
       addedAt: r.addedAt,
       scaleMultiplier: r.scaleMultiplier,
       yawOffsetDeg: r.yawOffsetDeg,
+      heightCm: r.heightCm,
       untextured: r.untextured,
     });
   }
@@ -153,6 +181,7 @@ export async function exportGallery(settings: SceneSettings): Promise<Blob> {
     settings,
     artifacts,
     artworks,
+    setups,
   };
 
   files['gallery.json'] = enc.encode(JSON.stringify(manifest, null, 2));
@@ -178,7 +207,9 @@ function readmeFor(m: Manifest): string {
     '',
     'Staged as:',
     `  Acrylic sheet  ${s.panel?.widthCm ?? '?'} cm wide, bottom edge ${s.panel?.bottomCm ?? '?'} cm up`,
-    `  Object gap     ${s.panel?.gapCm ?? '?'} cm in front of the sheet`,
+    `  Object gap     ${s.slots?.A.gapCm ?? s.panel?.gapCm ?? '?'} cm in front of the sheet`,
+    ...(s.twoUp && s.slots ? [`  Second object  ${s.slots.B.gapCm} cm out, ${s.slots.B.xCm} cm along`] : []),
+    ...(s.station ? [`  Station        ${s.station}`] : []),
     `  Reflectance    ${s.reflectance?.toFixed(2) ?? '?'} head-on`,
     '',
     'Open the Reflection Viewer and use Import gallery to load this file.',
@@ -197,6 +228,7 @@ function readmeFor(m: Manifest): string {
 export type ImportResult = {
   count: number;
   artworkCount: number;
+  setupCount: number;
   settings: SceneSettings | null;
 };
 
@@ -222,7 +254,7 @@ export async function importGallery(file: File): Promise<ImportResult> {
     );
   }
 
-  await Promise.all([clearArtifacts(), clearArtworks()]);
+  await Promise.all([clearArtifacts(), clearArtworks(), clearSetups()]);
 
   let count = 0;
   for (const a of manifest.artifacts) {
@@ -244,6 +276,7 @@ export async function importGallery(file: File): Promise<ImportResult> {
       addedAt: a.addedAt,
       scaleMultiplier: a.scaleMultiplier ?? 1,
       yawOffsetDeg: a.yawOffsetDeg ?? 0,
+      ...(typeof a.heightCm === 'number' ? { heightCm: a.heightCm } : {}),
       untextured: a.untextured ?? false,
     };
 
@@ -271,7 +304,15 @@ export async function importGallery(file: File): Promise<ImportResult> {
     artworkCount += 1;
   }
 
-  return { count, artworkCount, settings: manifest.settings ?? null };
+  // Setups refer to objects and prints by id, and ids survive the round trip, so they come
+  // back pointing at the same things.
+  let setupCount = 0;
+  for (const setup of manifest.setups ?? []) {
+    await putSetup(setup);
+    setupCount += 1;
+  }
+
+  return { count, artworkCount, setupCount, settings: manifest.settings ?? null };
 }
 
 /** Artworks keep a readable extension so the zip is legible outside the app. */

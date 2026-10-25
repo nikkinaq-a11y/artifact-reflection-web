@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { Box3, Vector3, type Object3D } from 'three';
 import { useViewer } from '../store';
 import {
   ACCEPTED_EXTENSIONS,
@@ -14,6 +15,19 @@ import { setModel } from '../library/models';
 import { ensureArt, measureImage } from '../library/artworks';
 
 const HEAVY_TRIANGLES = 1_500_000;
+
+/**
+ * A glTF's own height, cm, if it is plausibly a real one. glTF is metres by spec, and
+ * photogrammetry exports (Metashape, RealityCapture) keep the scan at true size — the
+ * Museo de América scans come in within millimetres of their catalogue heights. Outside
+ * 1 cm to 4 m the file was clearly scaled for something else, so it is auto-fit instead.
+ * Other formats carry no reliable unit and are always auto-fit until a height is typed.
+ */
+function nativeHeightCm(group: Object3D, format: string): number | undefined {
+  if (format !== 'gltf') return undefined;
+  const h = new Box3().setFromObject(group).getSize(new Vector3()).y * 100;
+  return h >= 1 && h <= 400 ? Math.round(h * 10) / 10 : undefined;
+}
 
 /** The store actions the two import paths need. Passed in rather than captured. */
 type ImportSink = {
@@ -173,6 +187,7 @@ async function importModels(
         scaleMultiplier: 1,
         yawOffsetDeg: 0,
         untextured,
+        heightCm: nativeHeightCm(group, format),
       };
 
       sink.setImporting({ name: label, note: 'Saving to library…' });

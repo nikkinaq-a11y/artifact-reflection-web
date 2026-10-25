@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { Object3D, RectAreaLight, SpotLight } from 'three';
 import { useViewer } from '../store';
-import { LIGHT_PRESETS } from './presets';
+import { LIGHT_LEVELS, LIGHT_PRESETS, STUDIO_THEMES, WALL_WASH } from './presets';
+import { useRigOffset } from './rig';
 
 /**
  * Mirrors the UE RectLight rig. RectAreaLight is three.js's analogue of Unreal's
@@ -16,6 +17,8 @@ const SHADOW_SPOT = { position: [1.35, 2.2, 1.6] as const, aimAt: [0, 1.1, 0.4] 
 
 export function Lighting() {
   const lights = useViewer((s) => s.lights);
+  // The brightness slider: one multiplier on every lamp, as in the baseline viewer.
+  const k = LIGHT_LEVELS[useViewer((s) => s.lightLevel)] ?? 1;
   const spot = useRef<SpotLight>(null);
   const spotTarget = useRef<Object3D>(null);
 
@@ -47,51 +50,81 @@ export function Lighting() {
     for (const { preset, light } of objects) {
       const s = lights[preset.id];
       light.visible = s.on;
-      light.intensity = s.intensity;
+      light.intensity = s.intensity * k;
     }
-  }, [lights, objects]);
+  }, [lights, objects, k]);
 
   const keyOn = lights.key?.on ?? true;
 
+  // The rig is authored around one object at the default spot. It travels with the
+  // objects as a rigid whole, so moving them — or a station putting them on a low
+  // pedestal — keeps every light's aim instead of leaving the subject in the dark.
+  const offset = useRigOffset();
+  const wallWash = STUDIO_THEMES[useViewer((s) => s.studioTheme)].wallWash;
+
   return (
     <>
-      {objects.map(({ preset, light }) => (
-        <primitive key={preset.id} object={light} />
+      {wallWash > 0 && <WallWash intensity={wallWash * k} />}
+      <group position={offset}>
+        {objects.map(({ preset, light }) => (
+          <primitive key={preset.id} object={light} />
+        ))}
+
+        {/* three.js RectAreaLight cannot cast shadows, so the soft studio shaping and the
+            shadowing are split across two lights: the rect rig above does the look, and
+            this spot — roughly co-located with the key — does the cast shadow. In Unreal a
+            single RectLight does both via Virtual Shadow Maps.
+
+            It is placed on the camera side so the object's shadow falls back toward the
+            sheet. The shadow lands on the floor and the back wall but not on the acrylic
+            itself: that surface runs a custom shader that composites print and reflection
+            and does not sample the shadow map. A shadow across a mirror would be wrong
+            anyway — what the sheet shows is the reflection, and the reflection is lit. */}
+        <object3D ref={spotTarget} position={[...SHADOW_SPOT.aimAt]} />
+        <spotLight
+          ref={spot}
+          position={[...SHADOW_SPOT.position]}
+          angle={0.32}
+          penumbra={0.9}
+          decay={2}
+          distance={12}
+          intensity={keyOn ? 24 * k : 0}
+          color="#fff4e8"
+          castShadow
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-bias={-0.0006}
+          shadow-normalBias={0.02}
+          shadow-camera-near={0.5}
+          shadow-camera-far={12}
+        />
+
+        {/* Very low ambient stands in for the floor/wall inter-reflection Lumen provides.
+            Kept near-black: the sheet reflects the room, so ambient that lifts the walls
+            also lifts the reflection and washes the print out from behind. */}
+        <ambientLight intensity={0.03} color="#8090a8" />
+      </group>
+    </>
+  );
+}
+
+/** Track lights washing the wall around the sheet — the white room's gallery lighting. */
+function WallWash({ intensity }: { intensity: number }) {
+  const lights = useMemo(
+    () =>
+      WALL_WASH.lights.map((w) => {
+        const l = new RectAreaLight(WALL_WASH.color, intensity, WALL_WASH.width, WALL_WASH.height);
+        l.position.set(...w.position);
+        l.lookAt(...w.aimAt);
+        return l;
+      }),
+    [intensity],
+  );
+  return (
+    <>
+      {lights.map((l, i) => (
+        <primitive key={i} object={l} />
       ))}
-
-      {/* three.js RectAreaLight cannot cast shadows, so the soft studio shaping and the
-          shadowing are split across two lights: the rect rig above does the look, and
-          this spot — roughly co-located with the key — does the cast shadow. In Unreal a
-          single RectLight does both via Virtual Shadow Maps.
-
-          It is placed on the camera side so the object's shadow falls back toward the
-          sheet. The shadow lands on the floor and the back wall but not on the acrylic
-          itself: that surface runs a custom shader that composites print and reflection
-          and does not sample the shadow map. A shadow across a mirror would be wrong
-          anyway — what the sheet shows is the reflection, and the reflection is lit. */}
-      <object3D ref={spotTarget} position={[...SHADOW_SPOT.aimAt]} />
-      <spotLight
-        ref={spot}
-        position={[...SHADOW_SPOT.position]}
-        angle={0.32}
-        penumbra={0.9}
-        decay={2}
-        distance={12}
-        intensity={keyOn ? 24 : 0}
-        color="#fff4e8"
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-bias={-0.0006}
-        shadow-normalBias={0.02}
-        shadow-camera-near={0.5}
-        shadow-camera-far={12}
-      />
-
-      {/* Very low ambient stands in for the floor/wall inter-reflection Lumen provides.
-          Kept near-black: the sheet reflects the room, so ambient that lifts the walls
-          also lifts the reflection and washes the print out from behind. */}
-      <ambientLight intensity={0.03} color="#8090a8" />
     </>
   );
 }

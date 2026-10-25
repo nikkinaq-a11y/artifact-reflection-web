@@ -50,55 +50,53 @@ const F: [number, number, number] = [0, FOCUS_HEIGHT, 0.25];
  * deliberately off-axis** — that is what separates the two images on screen. The one
  * near-frontal view, Print, exists to read the artwork itself rather than the overlay.
  *
- * Ordered so cycling sweeps one side at a time: the paired reflection views, then out
- * through the obliques and rakes, then the vertical pair, then the close pair, then the
- * three specials.
+ * Ordered as one sweep around the piece, so C never throws the camera from one side to
+ * the other: out along the right (Reflection → Close → Oblique → Raking → Grazing), back
+ * in through the centre views (Wide, the vertical pair, Print), then out along the left.
+ * Angles from the subject: right +39° … +89°, centre +29° … +6°, left −39° … −77°. The
+ * only long move is the wrap from Raking Left back to the start, and CameraRig blends
+ * along an arc round the subject, never through it.
  */
 export const CAMERA_PRESETS: CameraPreset[] = [
+  // ── Right side, outward ──
   { name: 'Reflection Right', position: [1.45, 1.3, 2.05], target: F, fov: 30 },
-  { name: 'Reflection Left', position: [-1.45, 1.3, 2.05], target: F, fov: 30 },
-
+  { name: 'Close Right', position: [0.95, 1.2, 1.15], target: F, fov: 24 },
   { name: 'Oblique Right', position: [2.05, 1.2, 1.45], target: F, fov: 28 },
-  { name: 'Oblique Left', position: [-2.05, 1.2, 1.45], target: F, fov: 28 },
-
   // Low and wide to the side: the sheet is seen at a steep angle, so Fresnel drives its
   // reflectance up and the acrylic reads closest to a true mirror.
   { name: 'Raking Right', position: [2.45, 1.1, 0.8], target: F, fov: 26 },
-  { name: 'Raking Left', position: [-2.45, 1.1, 0.8], target: F, fov: 26 },
+  // The extreme: almost in the plane of the sheet, where acrylic goes fully specular.
+  { name: 'Grazing', position: [2.8, 1.15, 0.3], target: F, fov: 24 },
 
+  // ── Centre, coming back round ──
+  { name: 'Wide', position: [1.6, 1.55, 3.1], target: [0, 1.0, 0.2], fov: 38 },
   // Vertical pair. From above the reflection spills down the sheet; from below it rises.
   { name: 'Overlay High', position: [0.6, 2.05, 1.7], target: F, fov: 34 },
   { name: 'Overlay Low', position: [0.75, 0.8, 1.85], target: F, fov: 32 },
-
-  { name: 'Close Right', position: [0.95, 1.2, 1.15], target: F, fov: 24 },
-  { name: 'Close Left', position: [-0.95, 1.2, 1.15], target: F, fov: 24 },
-
   // Nearly square to the sheet — minimum Fresnel, so the print reads at full strength and
   // the reflection is at its faintest. The view for judging the artwork on its own.
   { name: 'Print', position: [0.3, 1.15, 2.75], target: [0, 1.05, 0], fov: 30 },
 
-  { name: 'Wide', position: [1.6, 1.55, 3.1], target: [0, 1.0, 0.2], fov: 38 },
-
-  // The extreme: almost in the plane of the sheet, where acrylic goes fully specular.
-  { name: 'Grazing', position: [2.8, 1.15, 0.3], target: F, fov: 24 },
+  // ── Left side, outward ──
+  { name: 'Reflection Left', position: [-1.45, 1.3, 2.05], target: F, fov: 30 },
+  { name: 'Close Left', position: [-0.95, 1.2, 1.15], target: F, fov: 24 },
+  { name: 'Oblique Left', position: [-2.05, 1.2, 1.45], target: F, fov: 28 },
+  { name: 'Raking Left', position: [-2.45, 1.1, 0.8], target: F, fov: 26 },
 ];
 
 /**
  * The room. Unlike the baseline viewer this is not just a backdrop — the sheet reflects
- * it, so wall and floor colour show up twice and a bright room is a bright reflection
- * competing with the artwork.
+ * it, so wall and floor colour show up twice.
  *
- * void      near-black on every surface. The reflection is the object and nothing else,
- *           floating on the print. The default, and the look the setup exists for.
- * gallery   dark warm grey with a readable floor, so the piece sits somewhere rather
- *           than nowhere. A little room shows in the sheet.
- * reveal    mid grey, lit enough to see the physical arrangement — sheet, pedestal,
- *           gap, mount height. For documentation and for rigging the shot, not display.
+ * There is one room, by decision (Nikki, 2026-10-25): the real install — white walls, a
+ * grey concrete floor, white pedestals, a light grey plinth, as in the BM38–49 elevation
+ * drawings. The sheet reflects all of it, which is what a visitor actually sees. Lit like a
+ * gallery rather than a lightbox, because it is used for marketing: warm off-white paint,
+ * little flat fill, and track-light wall washes that pool around the piece and fall off
+ * toward the room's edges. The earlier void / gallery / reveal rooms and the B key that
+ * cycled them are gone.
  */
-export type StudioTheme = 'void' | 'gallery' | 'reveal';
-
-/** Cycle order for B. void first: it is the display default. */
-export const STUDIO_THEME_ORDER: StudioTheme[] = ['void', 'gallery', 'reveal'];
+export type StudioTheme = 'white';
 
 export const STUDIO_THEMES: Record<
   StudioTheme,
@@ -106,35 +104,38 @@ export const STUDIO_THEMES: Record<
     wall: string;
     floor: string;
     pedestal: string;
+    /** The riser on top of the pedestal — FCME bases are drawn grey, FJM white. */
+    base: string;
+    /** The floor platform the station stands on. */
+    plinth: string;
     background: string;
     envIntensity: number;
-    /** Opacity of the grounding contact shadow, which needs to differ per background. */
+    /** Opacity of the grounding contact shadow. */
     contactShadowOpacity: number;
+    /** Tone-mapping exposure — a touch under 1 keeps the paint off pure white. */
+    exposure: number;
+    /** A concrete floor carries a faint sheen. */
+    floorRoughness: number;
+    /** Intensity of the overhead wall-wash lights. See WALL_WASH. */
+    wallWash: number;
   }
 > = {
-  void: {
-    wall: '#050507',
-    floor: '#050507',
-    pedestal: '#08080a',
-    background: '#030304',
-    envIntensity: 0.03,
-    contactShadowOpacity: 0.7,
-  },
-  gallery: {
-    wall: '#14141a',
-    floor: '#0d0d11',
-    pedestal: '#101014',
-    background: '#0a0a0e',
-    envIntensity: 0.12,
+  white: {
+    // Gallery white is a warm off-white, never #fff — a painted wall reads as paint only
+    // when it holds some tone, and the light pooling on it carries the realism.
+    wall: '#dbd7cf',
+    // Polished concrete, the usual museum floor: mid grey, so pedestals sit on something.
+    floor: '#8a857c',
+    // A step down from the wall, as painted MDF plinths are, so they never merge into it.
+    pedestal: '#dcd8d0',
+    base: '#aeacb1',
+    plinth: '#bdb9b1',
+    background: '#bfbbb3',
+    envIntensity: 0.2,
     contactShadowOpacity: 0.6,
-  },
-  reveal: {
-    wall: '#5a5d66',
-    floor: '#3e4148',
-    pedestal: '#2b2d33',
-    background: '#484b53',
-    envIntensity: 0.5,
-    contactShadowOpacity: 0.45,
+    exposure: 0.95,
+    floorRoughness: 0.55,
+    wallWash: 24,
   },
 };
 
@@ -148,17 +149,21 @@ export const STUDIO_THEMES: Record<
  */
 export const PANEL_DEFAULTS = {
   widthCm: 120,
-  /** Height of the sheet's bottom edge above the floor. */
+  /**
+   * Explicit sheet height, or null to derive it from the artwork's aspect ratio. A
+   * station sets both, because the install plan gives the glass as H × W and some
+   * sheets are a detail cut from a larger painting.
+   */
+  heightCm: null as number | null,
+  /** Height of the sheet's bottom edge above the floor — or above the plinth, when on. */
   bottomCm: 62,
-  /** Distance from the sheet's face to the centre of the pedestal. */
-  gapCm: 40,
 
-  minWidthCm: 40,
-  maxWidthCm: 240,
+  minWidthCm: 20,
+  maxWidthCm: 260,
+  minHeightCm: 20,
+  maxHeightCm: 260,
   minBottomCm: 0,
-  maxBottomCm: 140,
-  minGapCm: 8,
-  maxGapCm: 120,
+  maxBottomCm: 160,
   stepCm: 5,
 
   /** width / height, used only when no artwork is loaded. */
@@ -250,13 +255,83 @@ export const PEDESTAL_DEFAULTS = {
   widthCm: 35,
   lengthCm: 35,
   heightCm: 95,
-  minWidthCm: 20,
-  maxWidthCm: 120,
-  minLengthCm: 20,
-  maxLengthCm: 120,
-  minHeightCm: 40,
+  minWidthCm: 10,
+  maxWidthCm: 150,
+  minLengthCm: 10,
+  maxLengthCm: 150,
+  minHeightCm: 10,
   maxHeightCm: 160,
   stepCm: 5,
+};
+
+/**
+ * The riser that sits on top of a pedestal — "Base FCME" / "Base FJM" in the install
+ * plan, 10×20×20 to 25×35×30 cm. Off by default; the object stands on it when on.
+ */
+export const BASE_DEFAULTS = {
+  widthCm: 20,
+  lengthCm: 20,
+  heightCm: 10,
+  min: 2,
+  max: 80,
+  stepCm: 1,
+};
+
+/**
+ * The floor platform under a station — the grey band along the bottom of every page of
+ * the install plan. Pedestals and the sheet's mount height both measure from its top. A
+ * rectangle sized to what stands on it (Nikki, 2026-10-25): the pedestals and the sheet
+ * plus a side margin along the wall, and from the wall out to just past the frontmost
+ * pedestal, so nothing ever overhangs its edge. It still meets the wall, so a sheet hung
+ * at 0 cm (BM38) sits on it.
+ */
+export const PLINTH_DEFAULTS = {
+  on: false,
+  heightCm: 10,
+  minHeightCm: 1,
+  maxHeightCm: 60,
+  stepCm: 1,
+  /** How far the plinth runs past the front of the frontmost pedestal. */
+  frontMarginCm: 20,
+  /** How far the plinth runs past the outermost pedestal or sheet edge, each side. */
+  sideMarginCm: 15,
+  minDepthCm: 40,
+};
+
+/**
+ * Where each object stands, and how far it can be moved. x is along the wall (0 is the
+ * sheet's centre line), gap is out from the sheet's face to the pedestal's centre.
+ */
+export const PLACEMENT = {
+  maxXCm: 300,
+  maxGapCm: 200,
+  /** Keeps the pedestal's back face this far off the sheet — it never touches the glass. */
+  sheetClearanceCm: 1,
+  /** Arrow keys move the active object this far; Shift moves it ten times as far. */
+  nudgeCm: 1,
+  /** G / Shift+G step the gap, as before. */
+  gapStepCm: 5,
+  /** Space left between two pedestals when the second object first appears. */
+  pairSpacingCm: 20,
+};
+
+/** Shift-drag on an object turns it at this rate. Gentle: for correcting, not spinning. */
+export const DRAG_DEG_PER_PX = 0.35;
+
+/**
+ * Track lights washing the wall, white room only: two warm rect lights high up and out
+ * from the wall, angled down onto it either side of the sheet. They give the wall the
+ * pool of light around a hung work, and the falloff into the corners, that a real
+ * gallery has and an evenly lit room does not. Fixed to the wall, not the objects.
+ */
+export const WALL_WASH = {
+  color: '#ffeedd',
+  lights: [
+    { position: [-1.1, 3.4, 1.6], aimAt: [-0.5, 1.2, -0.08] },
+    { position: [1.1, 3.4, 1.6], aimAt: [0.5, 1.2, -0.08] },
+  ] as { position: [number, number, number]; aimAt: [number, number, number] }[],
+  width: 0.5,
+  height: 0.5,
 };
 
 export type LightPreset = {
@@ -282,6 +357,17 @@ export type LightPreset = {
 
 /** Roughly where the object's mass sits, for aiming. */
 const OBJ: [number, number, number] = [0, 1.12, 0.4];
+
+/**
+ * The lights and the camera presets above are authored around one object at OBJ — the
+ * default pedestal, 40 cm out from the sheet. When the objects move, or a station puts
+ * them on a 50 cm pedestal instead of a 95, the whole rig is carried along by the
+ * difference between OBJ and where the objects actually are, so every preset keeps its
+ * framing. In the default scene that difference is zero and nothing moves.
+ */
+export const RIG_ORIGIN = OBJ;
+/** OBJ sits this far above the default pedestal's top — "where the mass is". */
+export const SUBJECT_LIFT_M = 0.17;
 
 /**
  * Mirrors the UE RectLight rig for the reflective level. RectAreaLight is the direct
@@ -370,6 +456,18 @@ export const LIGHT_PRESETS: LightPreset[] = [
  * rather than something the curator has to dial in. Six presses of R turns it around.
  */
 export const FACE_PANEL_YAW_DEG = 180;
+
+/**
+ * Brightness: the baseline viewer's five-step slider, with the same logic — one multiplier
+ * on the whole rig (rect lights, shadow spot, and the white room's wall washes; not the
+ * environment). Steps rather than a free dial so a staged look can be named and repeated.
+ *
+ * Retuned with Nikki 2026-10-21: the top step is 0.8 of the rig's authored values (the
+ * old step 4), everything below it dimmer, and step 1 very low for a near-dark look. The
+ * default stays in the middle.
+ */
+export const LIGHT_LEVELS = [0.12, 0.3, 0.45, 0.6, 0.8];
+export const DEFAULT_LIGHT_LEVEL = 2;
 
 /**
  * R steps the object around a full turn in fixed increments rather than spinning it, so

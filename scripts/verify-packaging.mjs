@@ -49,8 +49,17 @@ await client.send('Browser.setDownloadBehavior', {
 const settle = (ms) => new Promise((r) => setTimeout(r, ms));
 const hud = () => page.$eval('.hud', (n) => n.textContent);
 
-await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
-await page.evaluate(() => indexedDB.deleteDatabase('artifact-reflection'));
+// Start from an empty library, with the local starter set marked as already loaded — it
+// would otherwise import the whole BM38–49 pairing set underneath this test.
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+await page.evaluate(async () => {
+  localStorage.setItem('seed-loaded-v1', '1');
+  localStorage.setItem('seed-loaded-v2', '1');
+  await new Promise((r) => {
+    const req = indexedDB.deleteDatabase('artifact-reflection');
+    req.onsuccess = req.onerror = req.onblocked = () => r();
+  });
+});
 await page.reload({ waitUntil: 'networkidle0' });
 await settle(1500);
 
@@ -65,13 +74,21 @@ await page.waitForFunction(() => document.querySelector('.hud')?.textContent?.in
 });
 await settle(2500);
 
-console.log('2. staging the scene (pedestal taller, gallery background, front light on)');
+console.log('2. staging the scene (pedestal taller, front light on)');
 for (let i = 0; i < 4; i++) await page.keyboard.press('KeyH');
-await page.keyboard.press('KeyB');
 await page.keyboard.press('KeyF');
 await settle(800);
 const staged = await hud();
 console.log('   ', staged.replace(/\s+/g, ' ').slice(0, 110));
+
+// A saved setup has to travel with the gallery too.
+await page.click('.stage .gallery-tab');
+await settle(300);
+await page.type('.stage-name', 'Packed setup');
+await page.click('.stage-btn.is-primary');
+await settle(800);
+await page.click('.stage .gallery-tab');
+await settle(300);
 
 console.log('3. exporting');
 await page.click('.gallery-tab');
@@ -95,6 +112,7 @@ if (!zipPath) throw new Error('no .zip was downloaded');
 const entries = unzipSync(readFileSync(zipPath));
 const names = Object.keys(entries);
 const manifest = JSON.parse(new TextDecoder().decode(entries['gallery.json']));
+console.log('    setups in manifest:', manifest.setups?.map((x) => x.name).join(', ') || 'none');
 console.log('    file:', zipPath.split('/').pop(), `(${(readFileSync(zipPath).length / 1048576).toFixed(1)} MB)`);
 console.log('    entries:', names.length, '| artifacts in manifest:', manifest.artifacts.length);
 console.log('    settings captured:', JSON.stringify(manifest.settings.pedestal), 'theme=' + manifest.settings.studioTheme, 'frontLight=' + manifest.settings.lights.front.on);
@@ -124,11 +142,17 @@ await page.screenshot({ path: join(outDir, 'restored.png') });
 // Pedestal row rather than matched loose: the HUD also carries a "120 cm wide" sheet row,
 // and a bare /115 cm/ would happily pass on the wrong line.
 const pedestalKept = /Pedestal\s*\d+ × \d+ × 115 cm/.test(restored);
-const themeKept = await page.$$eval('.theme-gallery', (n) => n.length > 0);
+const themeKept = await page.$$eval('.theme-white', (n) => n.length > 0);
 const frontKept = /Front light/.test(restored);
 console.log('    pedestal height restored:', pedestalKept);
-console.log('    gallery background restored:', themeKept);
+console.log('    white room (the only room):', themeKept);
 console.log('    front light restored:', frontKept);
+await page.click('.stage .gallery-tab');
+await settle(400);
+const setupsBack = await page.$$eval('.stage-setup-load', (b) => b.map((x) => x.textContent));
+console.log('    saved setup restored:', setupsBack.some((x) => x.includes('Packed setup')));
+await page.click('.stage .gallery-tab');
+await settle(300);
 
 console.log('6. offline reload (network disabled)');
 await client.send('Network.enable');

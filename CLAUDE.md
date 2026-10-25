@@ -53,15 +53,24 @@ up. Do not try to prompt for credentials.
 Working: acrylic sheet with real planar reflection and print compositing, reflection sharpness
 falling off with distance from the sheet, 13 camera presets +
 click-drag orbit fenced to the front half-space, sheet width / mount height / gap in cm, reflectance
-/ surface finish / print brightness, void / gallery / reveal rooms, pedestal in cm, stepped rotation,
+/ surface finish / print brightness, the white gallery room (the only one), pedestal in cm, stepped rotation,
 scale, front light, drag-and-drop import of both objects and prints, IndexedDB library with a
 two-tab gallery, gallery export/import as `.zip` carrying objects *and* prints *and* the staging,
 PWA offline install, Tauri Mac app.
 
-Verified with `verify-reflection.mjs` (16/16), `verify-import.mjs` and `verify-packaging.mjs`.
+**BM42–49 iteration (2026-10-20), from Nikki's 10/8 notes and `BM38-49_EdicionJM-opt.pdf`:**
+two objects (slots A and B), each with its own pedestal and an optional base (riser) on top;
+a floor plinth under everything; a white-wall room; drag an object to move it (Shift-drag
+turns), arrows nudge; a **Stage** panel (top left) with typed cm for sheet H × W, mount height,
+plinth, and each object's position, true height, pedestal and base; and the eight BM42–49
+stations staged straight from the install plan. The sheet's height can now be pinned (the print
+is then cover-cropped); objects with a known real height render at true scale.
 
-Not done: no seed collection, no thumbnails, no sliders (keyboard only), no decimation of huge
-scans, and the print does not respond to scene lighting (see Known gaps in the README).
+Verified with `verify-reflection.mjs` (17/17), `verify-import.mjs`, `verify-packaging.mjs` and
+`verify-stage.mjs` (56/56) and `verify-seed.mjs` (10/10).
+
+Not done: no thumbnails, no decimation *in the app* (big scans are shrunk offline — see below),
+and the print does not respond to scene lighting (see Known gaps in the README).
 
 **Scene values in `src/scene/presets.ts` are reconstructions, not the real Unreal values.** The
 level has 13 `CineCameraActor`s and a RectLight rig whose transforms, FOV and intensities should
@@ -71,13 +80,44 @@ replace them verbatim once captured. It is all plain data so the swap touches on
 collection. Collections travel as exported `.zip` files. Baking artifacts into the build is a
 collection-rights decision; do not do it without asking.
 
-**Local builds start with four scans; the published site does not.** `public/seed/` holds the
-Dogon Mask, Gelede Mask, Ashanti Fertility Doll and Fertility Sculpture plus a `seed.json` listing
-them, and is gitignored. `src/library/seed.ts` imports them on a browser's first run when the
-library is empty — in `npm run dev`, a local build and the Tauri app. GitHub Pages builds from the
-repo, where the folder does not exist, so the public gallery stays empty. Decided with Nikki
-2026-09-24: seeding is local-only until the museum clears scans for public release. Seeding happens
-once per browser (`localStorage` `seed-loaded-v1`); clear that key to reseed.
+**Local builds start with the BM38–49 pairing set; the published site does not.** Since
+2026-10-20 the starter gallery is every scan and print the stations use (7 objects, 12 prints, all
+in `public/seed/stations/`, gitignored). `src/library/seed.ts` derives the list from `STATIONS` —
+there is no `seed.json` any more — imports it once per browser (`localStorage` `seed-loaded-v2`),
+then opens on BM38. A browser that had the v1 starter gallery (four NOMA scans) has exactly those
+four removed by name and the pairing set added; anything the curator added stays. GitHub Pages
+builds from the repo, where the folder does not exist, so the public gallery stays empty — seeding
+is local-only until the museum clears scans for public release (decided with Nikki 2026-09-24).
+Clear both seed keys and the database to reseed. Every verify script sets both keys first, or a
+fresh profile imports the whole set underneath the test.
+
+**The station assets live in `public/seed/stations/` (gitignored, ~65 MB).** They are not seeded;
+choosing a station in the Stage panel imports what it needs on demand and reuses it after. Prints
+are the BM42–49 images from Box › `01_SIGNATURE-PROJECTS/BlackMirror_Images-and-Pairing-Index/`,
+resized to 4096 px. Scans come **only** from the Pluriversal Studio folder (Nikki's rule):
+`3DWorks-and-Facsimiles_MuseoDeAmerica_2026/MAM_PluriversalStudio[PS]/`. Those GLBs are ~130 MB,
+4M triangles, 8K textures — far too heavy for a scene drawn twice a frame — so they are shrunk
+offline, originals untouched (renamed `MAM_<catalogue>.glb`):
+
+```bash
+npx gltf-transform optimize "<PS>/1985_01_128.glb" public/seed/stations/MAM_1985_01_128.glb \
+  --compress false --texture-compress webp --texture-size 4096 \
+  --simplify-ratio 0.04 --simplify-error 0.0005      # → ~11 MB, ~260K tris
+```
+
+`--compress false` because the loader has no Draco/Meshopt decoder; WebP textures load natively.
+The PS scans are in **real metres** (glTF spec), so import records their height and they stand at
+true size. **Several are filed under a different number than the plan prints, or are placeholders
+in it, so pairings were matched by the plan's own photo of each object:** BM38 → 01425, BM43 →
+1981_04_113 + 1981_04_049, BM45 → 1985_01_128, BM46 → 1985_01_118, BM47 → 1985_01_106, BM48's
+painted figure → 2002_05_032. No scan anywhere in Signature Projects for BM39, 40, 41, 42, 44, BM48's
+dog vessel or BM49 (the GDH and Factum Arte folders hold STLs / nothing) — those pedestals stand
+empty and the station says why. BM39's print exists only as a PSD; `sips` converts it.
+
+**Seed filenames must be NFC and the URL built with `encodeURI`.** Box hands macOS decomposed
+accents (Fábula, bufón) and the plan's names have commas ("106,5x82,5cm"); Vite decodes paths
+with `decodeURI`, which leaves `%2C` encoded, so `encodeURIComponent` silently 404s into
+index.html.
 
 ## Architecture
 
@@ -85,14 +125,19 @@ once per browser (`localStorage` `seed-loaded-v1`); clear that key to reseed.
 src/
   scene/
     Acrylic.tsx        the sheet: planar reflection pass + print compositing shader
-    panelGeometry.ts   sheet dimensions, derived from the artwork's aspect ratio
+    panelGeometry.ts   sheet dimensions (derived or pinned height), plinth depth
     Studio.tsx         room, only ever in front of the sheet
-    Pedestal.tsx  Lighting.tsx  Environment.tsx  CameraRig.tsx  ArtifactMesh.tsx
-    presets.ts         every camera / light / sheet / pedestal value, as plain data
+    Pedestal.tsx       Stand (pedestal + base, per slot) and Plinth — translate only, never rotate
+    ArtifactMesh.tsx   one per slot; true height or auto-fit; invisible grab box
+    DragMove.tsx       drag to move / Shift-drag to turn; grab.ts is its hit-test registry
+    rig.ts             offset that carries lights + camera presets to where the objects are
+    Lighting.tsx  Environment.tsx  CameraRig.tsx
+    presets.ts         every camera / light / sheet / pedestal / plinth value, as plain data
   import/     loadModel.ts (all formats), useImport.ts, DropZone.tsx
-  library/    db.ts (IndexedDB), models.ts, artworks.ts, galleryFile.ts (zip), GalleryPanel
-  ui/         keybinds.ts
-  store.ts    Zustand — the state BP_PhotoViewerController held, plus the sheet
+  library/    db.ts (IndexedDB), models.ts, artworks.ts, galleryFile.ts (zip), GalleryPanel,
+              stations.ts (BM42–49 from the install plan)
+  ui/         keybinds.ts, StagePanel.tsx (typed cm)
+  store.ts    Zustand — slots A/B (object, position, pedestal, base), plinth, sheet, optics
 ```
 
 Parsed `THREE.Group`s live in `library/models.ts` and decoded print textures in
@@ -101,6 +146,65 @@ putting them in the store re-renders the tree on every import. The store holds m
 
 State is in **centimetres** to stay comparable with `BP_AdjustablePedestal`; three.js works in
 metres. `src/lib/units.ts` converts at the boundary.
+
+**Everything per-object is in a slot.** `slots.A` always exists; `slots.B` is in the scene when
+`twoUp`. Keys and the Stage panel act on `active`. A slot's `objectIndex` points into `artifacts`
+(-1 = empty pedestal). Heights stack: plinth (when on) → pedestal → base → object; the sheet's
+`bottomCm` also measures from the plinth top, as the install plan's elevations do.
+
+**The rig follows the subject.** Lights and camera presets were authored around one object at
+`RIG_ORIGIN`; `rig.ts` offsets them by where the live objects actually are. Zero in the default
+scene, which is why `verify-reflection.mjs`'s fixed pixel regions still hold. Lights follow live;
+the camera only re-aims when a preset is chosen or a station applied (`camNonce`), so a drag
+never drags the view.
+
+**Gallery files stayed at format version 1.** The slot/plinth fields are optional additions, and
+the v1 single-object fields are still written from slot A, so older builds can open new files.
+
+**Moving a stand needs confirming.** A click on a pedestal, base or object sets `moveAsk` (white
+outline via drei `Edges` + an `Html` "Move pedestal?" prompt); Move sets `moveUnlocked`, and only
+then does DragMove claim the press. A press on a locked stand is left to OrbitControls, and only a
+still click (< 5 px) asks. Arrows ask too; Esc, Done or a click on empty space locks. Shift-drag
+turning, G, and typed Stage values are deliberate and stay ungated.
+
+**Recommended objects follow the print.** `useRecommendations()` (stations.ts) finds the station
+whose `BMxx_` print is on the sheet — else the last staged one — and its objects lead both the
+Stage panel's Object dropdown and the gallery's Objects list as "Recommended — …", or
+"Recommended A / B — …" for two-object pairings. Objects with no scan are listed greyed, with a
+distinct option value so an empty pedestal never displays as one.
+
+**There is one room: the white gallery** (Nikki, 2026-10-25 — "no option to have a scene or
+background other than the white"; the grey floor and white walls are approved). The void /
+gallery / reveal rooms and the B key are gone; galleries saved in them open white. It is tuned
+for marketing stills: warm off-white paint (`#dbd7cf`, never `#fff`), concrete floor with a faint
+sheen, pedestals a step darker than the wall, low flat fill (env 0.2), exposure 0.95, and two
+warm `WALL_WASH` rect lights high on the wall for the pool-and-falloff of track lighting.
+
+**`verify-reflection.mjs` reads the white room, not a black one.** A bare sheet mirrors the walls
+(luma ~97, not 0), the object's reflection is a *darker* shape on it, and raising reflectance
+*brightens* the print patch as the walls take over. Its checks are stated that way; don't
+"fix" them back to black-room assumptions.
+
+**Every corner panel reduces to a chip:** Stage and Gallery tabs, the lower-left readout (click
+its camera line, as in the Pair Viewer), and the lower-right notes box (–).
+
+**Brightness is the baseline viewer's slider**, ported: five steps in `LIGHT_LEVELS`, one
+multiplier on the rect rig, the shadow spot and the wall washes (not the environment). Steps are
+×0.12 / 0.3 / 0.45 / 0.6 / 0.8 of the authored rig (Nikki, 2026-10-21); default is the middle.
+
+**Snapshots: I or the camera button (right edge).** `scene/Snapshot.tsx` renders a fresh frame and
+reads it back in the same task (no `preserveDrawingBuffer`). Files and gallery exports both go
+through `lib/saveFile.ts`: a download in the browser, the native Save panel in the Mac app
+(`choose_save_path` / `write_saved_file` in `src-tauri/src/lib.rs`, from the baseline viewer —
+an `<a download>` does nothing in the app's WebKit window).
+
+**Camera presets run as one sweep** (right side outward → centre → left side outward), and
+CameraRig blends along an arc about the subject with time scaled to the angle — so C never
+throws the camera side to side. Grazing is index 4 now, not the last.
+
+**Saved setups** (Stage panel) live in the IndexedDB `setups` store (DB version 2), are the
+gallery's `SceneSettings` plus the object/print **ids** (not indices — the library reorders), and
+ride along in gallery exports as optional `manifest.setups`.
 
 ## The layout, which everything else assumes
 
@@ -205,6 +309,8 @@ node scripts/make-icons.mjs  # regenerate the PWA icons
 node scripts/verify-reflection.mjs ./shots    # THE one: reflection, print, sheet controls
 node scripts/verify-import.mjs ./shots        # import, cycle, reload, remove
 node scripts/verify-packaging.mjs ./shots     # export/import + offline (needs preview on 4179)
+node scripts/verify-stage.mjs ./shots/stage   # stations, confirm-to-move, setups, typed cm (needs public/seed/stations)
+node scripts/verify-seed.mjs ./shots/stage    # pairing set preloads, v1 seed migrates, once only
 ```
 
 Always typecheck and re-run at least `verify-reflection.mjs` after changes; it catches rendering
@@ -215,7 +321,8 @@ regressions that typechecking cannot.
 - Scene/light/camera/sheet/pedestal values live as plain data in `src/scene/presets.ts`, never
   inline in components, so the real Unreal values can be dropped in without touching logic.
 - Keybindings mirror the baseline viewer and the Unreal `BP_KeyboardControls` legend exactly
-  (C O R P H K L V F B, Shift to reverse, Tab for help). The additions are all the acrylic:
+  (C O R P H K L V F, Shift to reverse, Tab for help — B, the old room cycle, is gone). The additions are all the acrylic:
+  **I** snapshot · **T** second object · **1**/**2** active object · **E** base · **Y** plinth · **arrows** nudge ·
   **A** print · **G** gap · **N** sheet width · **M** mount height · **Z** reflectance ·
   **U** surface finish · **X** print brightness.
 - The gallery is deliberately **not** on a key — it lives behind a permanent tab so it is

@@ -5,7 +5,10 @@ import { clearModels, dropModel } from './models';
 import { clearArt, dropArt } from './artworks';
 import { useImportFiles } from '../import/useImport';
 import { ACCEPTED_EXTENSIONS } from '../import/loadModel';
-import { downloadBlob, exportGallery, importGallery } from './galleryFile';
+import { exportGallery, importGallery } from './galleryFile';
+import { saveFile } from '../lib/saveFile';
+import { refreshSetups } from './setups';
+import { useRecommendations } from './stations';
 
 const mb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 
@@ -24,7 +27,8 @@ export function GalleryPanel() {
   const artifacts = useViewer((s) => s.artifacts);
   const artworks = useViewer((s) => s.artworks);
   const open = useViewer((s) => s.showGallery);
-  const objectIndex = useViewer((s) => s.objectIndex);
+  // The list highlights, and a pick fills, whichever object the keys are acting on.
+  const objectIndex = useViewer((s) => s.slots[s.active].objectIndex);
   const artIndex = useViewer((s) => s.artIndex);
   const selectObject = useViewer((s) => s.selectObject);
   const selectArt = useViewer((s) => s.selectArt);
@@ -40,6 +44,7 @@ export function GalleryPanel() {
   const [busy, setBusy] = useState<'export' | 'import' | null>(null);
 
   const importFiles = useImportFiles();
+  const { station: pairing, recs } = useRecommendations();
 
   const removeObject = async (id: string) => {
     await deleteArtifact(id);
@@ -68,7 +73,8 @@ export function GalleryPanel() {
     try {
       const blob = await exportGallery(captureSettings());
       const stamp = new Date().toISOString().slice(0, 10);
-      downloadBlob(blob, `reflection-gallery-${stamp}.zip`);
+      // Through saveFile, not a download link: in the Mac app a link click saves nothing.
+      await saveFile(blob, `reflection-gallery-${stamp}.zip`);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Export failed.');
     } finally {
@@ -92,7 +98,10 @@ export function GalleryPanel() {
       applySettings(settings);
       setArtifacts(await listArtifactMeta());
       setArtworks(await listArtworkMeta());
-      selectObject(0);
+      await refreshSetups();
+      // A gallery that records which object stands where keeps it — the library is in
+      // date-added order, which an import preserves. An older one starts on the first.
+      if (!settings?.slots) selectObject(0);
       if (count === 0 && artworkCount === 0) {
         setImportError('That gallery contained no objects and no artworks.');
       }
@@ -145,6 +154,30 @@ export function GalleryPanel() {
           </div>
         ) : (
           <ul className="gallery-list">
+            {/* The install plan's pairing for the print on the sheet, pinned first. */}
+            {recs.map((r, i) => (
+              <li
+                key={r.tag}
+                className={`gallery-rec${i === recs.length - 1 ? ' is-last' : ''}${
+                  r.index >= 0 && r.index === objectIndex ? ' is-active' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  className="gallery-pick"
+                  disabled={r.index < 0}
+                  onClick={() => selectObject(r.index)}
+                >
+                  <span className="gallery-index">★</span>
+                  <span className="gallery-name">
+                    {r.tag} — {r.label}
+                  </span>
+                  <span className="gallery-meta">
+                    {r.missing ?? `${pairing?.id} · ${artifacts[r.index]?.name}`}
+                  </span>
+                </button>
+              </li>
+            ))}
             {artifacts.map((a, i) => (
               <li key={a.id} className={i === objectIndex ? 'is-active' : undefined}>
                 <button type="button" className="gallery-pick" onClick={() => selectObject(i)}>

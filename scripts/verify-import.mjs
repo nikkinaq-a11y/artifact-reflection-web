@@ -46,7 +46,18 @@ const shot = async (name) => {
 const hud = () =>
   page.evaluate(() => document.querySelector('.hud')?.textContent?.trim() ?? '(no hud)');
 
-await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
+// Start from an empty library — a local build's starter gallery would otherwise fill a
+// fresh profile before the empty state this script begins from ever shows.
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+await page.evaluate(async () => {
+  localStorage.setItem('seed-loaded-v1', '1');
+  localStorage.setItem('seed-loaded-v2', '1');
+  await new Promise((r) => {
+    const req = indexedDB.deleteDatabase('artifact-reflection');
+    req.onsuccess = req.onerror = req.onblocked = () => r();
+  });
+});
+await page.reload({ waitUntil: 'networkidle0', timeout: 60000 });
 await settle(1500);
 
 console.log('1. empty state');
@@ -71,17 +82,11 @@ await settle(2500);
 console.log('  hud:', await hud());
 await shot('03-after-O');
 
-console.log('4. backgrounds with B');
+console.log('4. the room — white gallery only, B does nothing');
 await page.keyboard.press('KeyB');
-await settle(1200);
-await shot('04-theme-gallery');
-await page.keyboard.press('KeyB');
-await settle(1200);
-await shot('04b-theme-reveal');
-// B cycles dark -> white -> horizon, so returning to the default takes one more press
-// than it used to. The rest of the run expects the dark studio.
-await page.keyboard.press('KeyB');
-await settle(1000);
+await settle(600);
+console.log('  white room:', await page.evaluate(() => document.querySelector('.app').classList.contains('theme-white')));
+await shot('04-room');
 
 console.log('5. gallery via its tab');
 await page.click('.gallery-tab');

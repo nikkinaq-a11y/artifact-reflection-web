@@ -2,12 +2,18 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-import { PerspectiveCamera, Vector3 } from 'three';
+import { MathUtils, PerspectiveCamera, Spherical, Vector3 } from 'three';
 import { useViewer } from '../store';
 import { CAMERA_PRESETS, FOCUS_HEIGHT } from './presets';
+import { rigOffset } from './rig';
 
-/** Seconds to blend between presets — the analogue of BlendTime on SetViewTargetWithBlend. */
-const BLEND_SECONDS = 0.7;
+/**
+ * Seconds to blend between presets — the analogue of BlendTime on SetViewTargetWithBlend.
+ * A short hop takes the minimum; the long way round the piece takes up to the maximum, so
+ * a wide swing never whips past.
+ */
+const BLEND_MIN_SECONDS = 0.7;
+const BLEND_MAX_SECONDS = 1.3;
 
 /** Keeps the camera above the floor while still allowing the low presets to look upward. */
 const MIN_POLAR = 0.2;
@@ -44,6 +50,7 @@ const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2
  */
 export function CameraRig() {
   const camIndex = useViewer((s) => s.camIndex);
+  const camNonce = useViewer((s) => s.camNonce);
   const camera = useThree((s) => s.camera) as PerspectiveCamera;
   const controls = useRef<OrbitControlsImpl>(null);
 
@@ -56,6 +63,11 @@ export function CameraRig() {
   const toTarget = useRef(new Vector3());
   const toFov = useRef(28);
   const scratch = useRef(new Vector3());
+  /** Where the camera sits relative to what it looks at, at each end of the blend. */
+  const fromArc = useRef(new Spherical());
+  const toArc = useRef(new Spherical());
+  const arc = useRef(new Spherical());
+  const duration = useRef(BLEND_MIN_SECONDS);
 
   useEffect(() => {
     const n = CAMERA_PRESETS.length;
@@ -65,24 +77,47 @@ export function CameraRig() {
     fromTarget.current.copy(controls.current?.target ?? new Vector3(0, FOCUS_HEIGHT, 0));
     fromFov.current = camera.fov;
 
-    toPos.current.set(...preset.position);
-    toTarget.current.set(...preset.target);
+    // Presets are authored around the default object position. They follow the objects
+    // when a preset is chosen — not continuously, so dragging an object never drags the
+    // camera with it.
+    const [ox, oy, oz] = rigOffset(useViewer.getState());
+    toPos.current.set(...preset.position).add(scratch.current.set(ox, oy, oz));
+    toTarget.current.set(...preset.target).add(scratch.current);
     toFov.current = preset.fov;
+
+    // Blend round the subject, not across it: interpolate the camera's angle and distance
+    // about its target. A straight line between two views on opposite sides cuts in front
+    // of the piece, or through it; an arc keeps it framed the whole way round.
+    fromArc.current.setFromVector3(scratch.current.subVectors(fromPos.current, fromTarget.current));
+    toArc.current.setFromVector3(scratch.current.subVectors(toPos.current, toTarget.current));
+    // The short way round, in case a free orbit left the angle past ±180°.
+    let dTheta = toArc.current.theta - fromArc.current.theta;
+    dTheta = MathUtils.euclideanModulo(dTheta + Math.PI, Math.PI * 2) - Math.PI;
+    toArc.current.theta = fromArc.current.theta + dTheta;
+    duration.current = MathUtils.lerp(
+      BLEND_MIN_SECONDS,
+      BLEND_MAX_SECONDS,
+      Math.min(1, Math.abs(dTheta) / Math.PI),
+    );
 
     t.current = 0;
     blending.current = true;
     if (controls.current) controls.current.enabled = false;
-  }, [camIndex, camera]);
+  }, [camIndex, camNonce, camera]);
 
   useFrame((_, dt) => {
     const c = controls.current;
     if (!blending.current || !c) return;
 
-    t.current = Math.min(1, t.current + dt / BLEND_SECONDS);
+    t.current = Math.min(1, t.current + dt / duration.current);
     const e = easeInOutCubic(t.current);
 
-    camera.position.lerpVectors(fromPos.current, toPos.current, e);
     scratch.current.lerpVectors(fromTarget.current, toTarget.current, e);
+    const a = arc.current;
+    a.radius = MathUtils.lerp(fromArc.current.radius, toArc.current.radius, e);
+    a.phi = MathUtils.lerp(fromArc.current.phi, toArc.current.phi, e);
+    a.theta = MathUtils.lerp(fromArc.current.theta, toArc.current.theta, e);
+    camera.position.setFromSpherical(a).add(scratch.current);
     c.target.copy(scratch.current);
     camera.lookAt(scratch.current);
 

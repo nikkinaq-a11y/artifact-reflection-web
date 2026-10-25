@@ -98,8 +98,29 @@ const press = async (key, shift = false) => {
   await settle(250);
 };
 
-await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
+// Start from an empty library. On a local build the starter gallery (public/seed/) would
+// otherwise fill a fresh profile with four scans, and every check below assumes the one
+// object this script imports is the only one.
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+await page.evaluate(async () => {
+  localStorage.setItem('seed-loaded-v1', '1');
+  localStorage.setItem('seed-loaded-v2', '1');
+  await new Promise((r) => {
+    const req = indexedDB.deleteDatabase('artifact-reflection');
+    req.onsuccess = req.onerror = req.onblocked = () => r();
+  });
+});
+await page.reload({ waitUntil: 'networkidle0', timeout: 60000 });
 await settle(1500);
+
+// Measure at a fixed brightness — the top step of the light slider — so the pixel checks
+// below do not move whenever the default level is retuned.
+await page.$eval('.rail-slider input', (el) => {
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  set.call(el, el.max);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await settle(300);
 
 console.log('1. empty scene — bare acrylic, no object');
 await shot('01-bare');
@@ -159,13 +180,17 @@ const bareSheet = luma(bare, ...PRINT_ONLY);
 const baseReflection = luma(bare, ...REFLECTION);
 console.log(`     reflection ${baseReflection.toFixed(1)}  bare sheet ${bareSheet.toFixed(1)}`);
 check(
+  // The room is the white gallery, so a bare sheet is not black: it mirrors the walls.
+  // Taking the print off must still remove light — the ink was adding to that mirror.
   'print brightness reaches bare acrylic',
-  bareSheet < basePrint * 0.5,
+  bareSheet < basePrint - 5,
   `print-only ${basePrint.toFixed(1)} -> ${bareSheet.toFixed(1)}`,
 );
 check(
+  // Against reflected white walls the object reads as a darker shape, not a brighter one.
+  // A reflection that failed to render would leave this patch matching the bare sheet.
   'the object is reflected in the sheet',
-  baseReflection > bareSheet + 4,
+  Math.abs(baseReflection - bareSheet) > 10,
   `reflection ${baseReflection.toFixed(1)} vs bare ${bareSheet.toFixed(1)}`,
 );
 
@@ -188,8 +213,10 @@ const mirroredPrint = await shot('06-mirror-over-print');
 const dimmedPrint = luma(mirroredPrint, ...PRINT_ONLY);
 console.log(`     print-only ${basePrint.toFixed(1)} -> ${dimmedPrint.toFixed(1)}`);
 check(
-  'a more reflective sheet shows less of the print',
-  dimmedPrint < basePrint,
+  // Fresnel trades print for mirror. In the white room the mirror is the brighter of the
+  // two, so a more reflective sheet brightens the print patch — the walls take over.
+  'a more reflective sheet trades the print for the room',
+  dimmedPrint > basePrint + 5,
   `${basePrint.toFixed(1)} -> ${dimmedPrint.toFixed(1)}`,
 );
 
@@ -223,21 +250,18 @@ check('A returns to the artwork', (await hud()).includes('Facsimilie1'));
 
 console.log('11. camera presets');
 for (const [i, name] of ['09-cam-2', '10-cam-3', '11-cam-grazing'].entries()) {
-  const presses = i === 2 ? 10 : 1;
+  // The presets run as one sweep out along the right, so Grazing is the fifth (index 4).
+  const presses = i === 2 ? 2 : 1;
   for (let k = 0; k < presses; k++) await press('KeyC');
-  await settle(900);
+  await settle(1400);
   await shot(name);
 }
 check('grazing preset reached', (await hud()).includes('GRAZING') || (await hud()).includes('Grazing'));
 
-console.log('12. themes');
+console.log('12. the room is the white gallery, and B no longer changes it');
 await press('KeyB');
-await settle(700);
-await shot('12-theme-gallery');
-await press('KeyB');
-await settle(700);
-await shot('13-theme-reveal');
-await press('KeyB');
+await settle(500);
+check('white room only', await page.evaluate(() => document.querySelector('.app').classList.contains('theme-white')));
 
 console.log('13. survives a reload');
 await page.reload({ waitUntil: 'networkidle0' });
