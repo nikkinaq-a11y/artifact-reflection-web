@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Reflection Viewer",
   "mainBinaryName": "Reflection Viewer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "edu.duke.noma.reflectionviewer",
   "build": {
     "frontendDist": "../dist",
@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": ["app", "dmg"],
     "copyright": "Duke University — Nasher Museum of Art",
     "category": "Education",
     "shortDescription": "Museum artifact reflection viewer",

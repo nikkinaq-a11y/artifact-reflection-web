@@ -1,6 +1,11 @@
 # Builds the Mac app and attaches it to a GitHub Release, so coworkers can download it from
 # the repo's Releases page and run it with no network.
 #
+# The permanent download link — always the newest release — is
+#   https://github.com/nikkinaq-a11y/artifact-reflection-web/releases/latest/download/Reflection-Viewer-Mac.dmg
+# That works because the last step re-uploads the .dmg under that fixed name; the copy
+# tauri-action uploads has the version in its file name. (Ported from the Artifact Viewer.)
+#
 # To publish a new version: bump "version" in src-tauri/tauri.conf.json, then
 #   git tag v0.1.0 && git push origin v0.1.0
 # Or run it by hand from the Actions tab (it uses the version in tauri.conf.json).
@@ -42,7 +47,8 @@ jobs:
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      - id: tauri
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -51,7 +57,7 @@ jobs:
           releaseBody: |
             **Reflection Viewer for Mac** — works fully offline once downloaded. Runs on Apple Silicon and Intel Macs (macOS 11+).
 
-            1. Download the `.dmg` below and open it.
+            1. Download **Reflection-Viewer-Mac.dmg** below and open it.
             2. Drag **Reflection Viewer** into Applications.
             3. The first time, macOS will block it because it isn't from the App Store. Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to Reflection Viewer, and confirm. After that it opens normally.
 
@@ -61,3 +67,11 @@ jobs:
           # package.json has no "tauri" script, so call the CLI directly.
           tauriScript: npx tauri
           args: --target universal-apple-darwin
+
+      - name: Upload the .dmg under a fixed name for the permanent download link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          cp "$dmg" Reflection-Viewer-Mac.dmg
+          gh release upload "v${{ steps.tauri.outputs.appVersion }}" Reflection-Viewer-Mac.dmg --clobber
