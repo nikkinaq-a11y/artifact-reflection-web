@@ -7,6 +7,7 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { USDLoader } from 'three/examples/jsm/loaders/USDLoader.js';
 import {
   BufferGeometry,
+  DoubleSide,
   Group,
   LoadingManager,
   MathUtils,
@@ -237,6 +238,12 @@ export function normalizeMaterials(root: Object3D): void {
       // there is no map (common for PLY) it is the only colour the file has, so it stays.
       const hasVertexColour = !!mesh.geometry?.attributes?.color;
       mat.vertexColors = hasVertexColour && !mat.map;
+
+      // Shadows from both faces. three.js draws a front-sided material's shadow from its
+      // *back* faces only, which assumes a closed mesh. Scans rarely are — an open base, a
+      // hollow vessel, holes the decimator left — so whole regions cast nothing and the
+      // shadow comes out holed and detached from the object (BM46, 2026-11-09).
+      mat.shadowSide = DoubleSide;
 
       mat.needsUpdate = true;
       return mat;

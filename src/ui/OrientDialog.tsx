@@ -346,6 +346,8 @@ function Preview({
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0004}
+        // Scans cast from both faces (loadModel.ts); this keeps that off their lit side.
+        shadow-normalBias={0.015}
         shadow-camera-left={-1.5}
         shadow-camera-right={1.5}
         shadow-camera-top={1.5}
