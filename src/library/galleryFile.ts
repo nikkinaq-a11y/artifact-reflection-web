@@ -12,6 +12,7 @@ import {
   type SetupRecord,
   type ArtifactRecord,
   type ArtworkRecord,
+  type Quat,
 } from './db';
 import type { SupportedFormat } from '../import/loadModel';
 import type { Slot, SlotId } from '../store';
@@ -85,6 +86,8 @@ type ManifestArtifact = {
   scaleMultiplier: number;
   yawOffsetDeg: number;
   heightCm?: number;
+  /** The upright correction, [x, y, z, w]. Optional: absent means as imported. */
+  orientation?: Quat;
   untextured: boolean;
 };
 
@@ -156,6 +159,7 @@ export async function exportGallery(settings: SceneSettings): Promise<Blob> {
       scaleMultiplier: r.scaleMultiplier,
       yawOffsetDeg: r.yawOffsetDeg,
       heightCm: r.heightCm,
+      ...(r.orientation ? { orientation: r.orientation } : {}),
       untextured: r.untextured,
     });
   }
@@ -217,7 +221,9 @@ function readmeFor(m: Manifest): string {
     'artifacts/ and artworks/ folders if you need them outside the app.',
     '',
     'Objects:',
-    ...m.artifacts.map((a) => `  - ${a.name}  (${a.format.toUpperCase()})`),
+    ...m.artifacts.map(
+      (a) => `  - ${a.name}  (${a.format.toUpperCase()})${a.orientation ? '  — orientation corrected in the app' : ''}`,
+    ),
     '',
     'Artworks:',
     ...m.artworks.map((a) => `  - ${a.name}  (${a.widthPx}x${a.heightPx})`),
@@ -277,6 +283,7 @@ export async function importGallery(file: File): Promise<ImportResult> {
       scaleMultiplier: a.scaleMultiplier ?? 1,
       yawOffsetDeg: a.yawOffsetDeg ?? 0,
       ...(typeof a.heightCm === 'number' ? { heightCm: a.heightCm } : {}),
+      ...(isQuat(a.orientation) ? { orientation: a.orientation } : {}),
       untextured: a.untextured ?? false,
     };
 
@@ -313,6 +320,11 @@ export async function importGallery(file: File): Promise<ImportResult> {
   }
 
   return { count, artworkCount, setupCount, settings: manifest.settings ?? null };
+}
+
+/** A gallery is a file from anywhere — only a well-formed rotation is trusted. */
+function isQuat(q: unknown): q is Quat {
+  return Array.isArray(q) && q.length === 4 && q.every((n) => typeof n === 'number' && Number.isFinite(n));
 }
 
 /** Artworks keep a readable extension so the zip is legible outside the app. */

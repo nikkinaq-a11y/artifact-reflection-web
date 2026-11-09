@@ -47,6 +47,8 @@ export function useKeybinds() {
       }
 
       const s = useViewer.getState();
+      // The Orientation window takes the keyboard while it is open (ui/OrientDialog.tsx).
+      if (s.orienting) return;
       const dir = e.shiftKey ? -1 : 1;
 
       switch (e.code) {
@@ -133,6 +135,14 @@ export function useKeybinds() {
           const dx = e.code === 'ArrowLeft' ? -d : e.code === 'ArrowRight' ? d : 0;
           const dz = e.code === 'ArrowUp' ? -d : e.code === 'ArrowDown' ? d : 0;
           s.nudgeActive(dx, dz);
+          break;
+        }
+
+        case 'KeyJ': {
+          // The Orientation window for whatever stands in the active slot.
+          const slot = s.slots[s.active];
+          const meta = slot.objectIndex < 0 ? undefined : s.artifacts[slot.objectIndex];
+          if (meta) s.openOrient(meta.id, s.active);
           break;
         }
 

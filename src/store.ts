@@ -48,6 +48,12 @@ export type Slot = {
    * sheet. The object keeps its seated height so toggling does not reframe the shot.
    */
   pedestalVisible: boolean;
+  /**
+   * Stands the object straight on the floor (or the plinth, when it is on) instead of on
+   * its pedestal and base, which are then not drawn. Placement and collisions still use
+   * the pedestal's footprint, so switching back puts the stand exactly where it was.
+   */
+  onFloor: boolean;
   /** The riser on top of the pedestal — "Base FCME" / "Base FJM" in the install plan. */
   base: BoxCm;
   baseOn: boolean;
@@ -207,6 +213,15 @@ type ViewerState = {
 
   showHelp: boolean;
   toggleHelp: () => void;
+
+  /**
+   * The Orientation window: which library object it is correcting, and the slot it was
+   * opened from (whose floor / pedestal choice it can set). null when closed. Every
+   * scene key is ignored while it is open — it has its own.
+   */
+  orienting: { artifactId: string; slot: SlotId | null } | null;
+  openOrient: (artifactId: string, slot?: SlotId | null) => void;
+  closeOrient: () => void;
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -277,6 +292,7 @@ const DEFAULT_SLOT: Slot = {
     heightCm: PEDESTAL_DEFAULTS.heightCm,
   },
   pedestalVisible: true,
+  onFloor: false,
   base: {
     widthCm: BASE_DEFAULTS.widthCm,
     lengthCm: BASE_DEFAULTS.lengthCm,
@@ -343,7 +359,13 @@ export const useViewer = create<ViewerState>((set, get) => {
         return { twoUp: true, active: 'B', slots: { ...s.slots, B: b } };
       }),
     updateSlot: (id, patch) =>
-      set((s) => ({ slots: { ...s.slots, [id]: normalizeSlot({ ...s.slots[id], ...patch }) } })),
+      set((s) => ({
+        slots: { ...s.slots, [id]: normalizeSlot({ ...s.slots[id], ...patch }) },
+        // Floor ↔ pedestal moves the object by a metre: re-aim, or it drops out of the shot.
+        ...(patch.onFloor !== undefined && patch.onFloor !== s.slots[id].onFloor
+          ? { camNonce: s.camNonce + 1 }
+          : {}),
+      })),
     setSlotBox: (id, which, key, value) =>
       set((s) => {
         const slot = s.slots[id];
@@ -546,6 +568,11 @@ export const useViewer = create<ViewerState>((set, get) => {
 
     showHelp: false,
     toggleHelp: () => set((s) => ({ showHelp: !s.showHelp })),
+
+    orienting: null,
+    openOrient: (artifactId, slot = null) =>
+      set({ orienting: { artifactId, slot }, moveAsk: null, moveUnlocked: null }),
+    closeOrient: () => set({ orienting: null }),
   };
 });
 
@@ -565,9 +592,9 @@ export const currentArtwork = (s: ViewerState): ArtworkMeta | undefined =>
 /** Height of the plinth's top above the floor, cm — where pedestals and the sheet measure from. */
 export const floorCm = (s: Pick<ViewerState, 'plinth'>) => (s.plinth.on ? s.plinth.heightCm : 0);
 
-/** Where an object in a slot is seated: plinth + pedestal + base, cm above the floor. */
+/** Where an object in a slot is seated: plinth + pedestal + base, cm above the floor — or just the plinth, on the floor. */
 export const seatCm = (s: Pick<ViewerState, 'plinth'>, slot: Slot) =>
-  floorCm(s) + slot.pedestal.heightCm + (slot.baseOn ? slot.base.heightCm : 0);
+  slot.onFloor ? floorCm(s) : floorCm(s) + slot.pedestal.heightCm + (slot.baseOn ? slot.base.heightCm : 0);
 
 /** Everything a gallery export needs to reproduce how the curator staged the scene. */
 export function captureSettings(): SceneSettings {
@@ -607,8 +634,10 @@ export function applySettings(next: SceneSettings | null): void {
       ...(next.objectScale !== undefined ? { scale: next.objectScale } : {}),
     };
     const slots = {
-      A: normalizeSlot({ ...s.slots.A, ...legacyA, ...(next.slots?.A ?? {}) }),
-      B: normalizeSlot({ ...s.slots.B, ...(next.slots?.B ?? {}) }),
+      // onFloor is reset first: a gallery or setup from before the floor option has none,
+      // and it should open on its pedestals, not inherit whatever the viewer had.
+      A: normalizeSlot({ ...s.slots.A, onFloor: false, ...legacyA, ...(next.slots?.A ?? {}) }),
+      B: normalizeSlot({ ...s.slots.B, onFloor: false, ...(next.slots?.B ?? {}) }),
     };
     const twoUp = next.twoUp ?? false;
     return {

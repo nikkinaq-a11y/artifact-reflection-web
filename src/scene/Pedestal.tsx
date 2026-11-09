@@ -84,10 +84,13 @@ export function Stand({ id }: { id: SlotId }) {
   const pedestalRef = useMemo(() => grabRef(id), [id]);
   const baseRef = useMemo(() => grabRef(id), [id]);
 
-  const { pedestal: p, base: b, pedestalVisible, baseOn } = slot;
+  const { pedestal: p, base: b, pedestalVisible, baseOn, onFloor } = slot;
   const x = cm(slot.xCm);
   const z = cm(slot.gapCm);
   const h = cm(p.heightCm);
+
+  // Standing on the floor: no stand at all. The object's own grab box still moves it.
+  if (onFloor) return null;
 
   // Hidden rather than unmounted: the object stays seated at the pedestal's height, so
   // toggling leaves it floating in place instead of dropping it to the floor.

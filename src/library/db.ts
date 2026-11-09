@@ -26,6 +26,12 @@ export type ArtifactRecord = {
   scaleMultiplier: number;
   yawOffsetDeg: number;
   /**
+   * The upright correction set in the Orientation window, as a quaternion [x, y, z, w]
+   * applied to the model before it is sized and seated — for scans exported face-down or
+   * on their side. Absent means as imported. The original bytes are never rewritten.
+   */
+  orientation?: Quat;
+  /**
    * The object's real height, cm, when known — glTF is in metres by spec, so a scan's own
    * size is read at import, and the stage panel takes a catalogue height for the rest.
    * Absent means auto-fit to a display size.
@@ -34,6 +40,9 @@ export type ArtifactRecord = {
 };
 
 /** Metadata only — payloads are deliberately excluded so lists stay cheap. */
+/** A rotation as [x, y, z, w] — plain numbers so it stores in IndexedDB and JSON as-is. */
+export type Quat = [number, number, number, number];
+
 export type ArtifactMeta = Omit<ArtifactRecord, 'bytes' | 'textures'>;
 
 /**
@@ -111,7 +120,7 @@ export async function getArtifact(id: string): Promise<ArtifactRecord | undefine
 /** Change an artifact's metadata in place — its real height, or a yaw correction. */
 export async function updateArtifactMeta(
   id: string,
-  patch: Partial<Pick<ArtifactRecord, 'heightCm' | 'yawOffsetDeg' | 'scaleMultiplier' | 'name'>>,
+  patch: Partial<Pick<ArtifactRecord, 'heightCm' | 'yawOffsetDeg' | 'scaleMultiplier' | 'name' | 'orientation'>>,
 ): Promise<void> {
   const d = await db();
   const record = await d.get('artifacts', id);

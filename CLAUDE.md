@@ -136,7 +136,7 @@ src/
   import/     loadModel.ts (all formats), useImport.ts, DropZone.tsx
   library/    db.ts (IndexedDB), models.ts, artworks.ts, galleryFile.ts (zip), GalleryPanel,
               stations.ts (BM42–49 from the install plan)
-  ui/         keybinds.ts, StagePanel.tsx (typed cm)
+  ui/         keybinds.ts, StagePanel.tsx (typed cm), OrientDialog.tsx (upright fix + screenshots)
   store.ts    Zustand — slots A/B (object, position, pedestal, base), plinth, sheet, optics
 ```
 
@@ -201,6 +201,24 @@ an `<a download>` does nothing in the app's WebKit window).
 **Camera presets run as one sweep** (right side outward → centre → left side outward), and
 CameraRig blends along an arc about the subject with time scaled to the angle — so C never
 throws the camera side to side. Grazing is index 4 now, not the last.
+
+**Orientation window (J, Stage › Orientation…, or ⟲ on a gallery row), 2026-11-08.** For scans
+exported face-down/sideways by people without Blender. `ui/OrientDialog.tsx` is a modal with its
+*own* Canvas (`preserveDrawingBuffer: true`, so a screenshot is a plain `toBlob`): ±90/15/1° tip,
+lean, spin buttons composed about **fixed view axes** (`rotateWorld` in `scene/orient.ts`), floor or
+pedestal, Gallery / White / Clear (transparent PNG) backdrop, Front / ¾ / Side / Top views, and a
+Screenshot button (or I). Save as default writes `orientation` (quaternion `[x,y,z,w]`) to the
+**library object**, not a slot — a face-down scan is wrong in every pairing. It also sets the
+opening slot's floor/pedestal choice. ArtifactMesh nests `spin > fit > orient > model` and
+measures bounds *after* the correction, vertex-exact (`orientedBounds`), so a tipped scan is
+sized by its standing height and seats on its new base. Gallery zips carry it as an optional
+`artifacts[].orientation` (format still v1); original bytes are never rewritten. The window
+uses a clone of the cached model (one parent per scene graph) and scene keys are off while open.
+
+**Stand on floor** (`slot.onFloor`, Stage › Stands on): no pedestal/base drawn, the object sits on
+the plinth top (or floor), seatCm returns floorCm. Placement and collisions still use the
+pedestal footprint. Toggling bumps `camNonce` so the camera re-aims — otherwise the object drops
+out of the shot. applySettings resets it to false for galleries/setups that predate it.
 
 **Saved setups** (Stage panel) live in the IndexedDB `setups` store (DB version 2), are the
 gallery's `SceneSettings` plus the object/print **ids** (not indices — the library reorders), and
@@ -311,6 +329,7 @@ node scripts/verify-import.mjs ./shots        # import, cycle, reload, remove
 node scripts/verify-packaging.mjs ./shots     # export/import + offline (needs preview on 4179)
 node scripts/verify-stage.mjs ./shots/stage   # stations, confirm-to-move, setups, typed cm (needs public/seed/stations)
 node scripts/verify-seed.mjs ./shots/stage    # pairing set preloads, v1 seed migrates, once only
+node scripts/verify-orient.mjs ./shots/orient # orientation window, screenshots, floor, zip round trip (22)
 ```
 
 Always typecheck and re-run at least `verify-reflection.mjs` after changes; it catches rendering
@@ -322,7 +341,7 @@ regressions that typechecking cannot.
   inline in components, so the real Unreal values can be dropped in without touching logic.
 - Keybindings mirror the baseline viewer and the Unreal `BP_KeyboardControls` legend exactly
   (C O R P H K L V F, Shift to reverse, Tab for help — B, the old room cycle, is gone). The additions are all the acrylic:
-  **I** snapshot · **T** second object · **1**/**2** active object · **E** base · **Y** plinth · **arrows** nudge ·
+  **I** snapshot · **J** orientation window · **T** second object · **1**/**2** active object · **E** base · **Y** plinth · **arrows** nudge ·
   **A** print · **G** gap · **N** sheet width · **M** mount height · **Z** reflectance ·
   **U** surface finish · **X** print brightness.
 - The gallery is deliberately **not** on a key — it lives behind a permanent tab so it is

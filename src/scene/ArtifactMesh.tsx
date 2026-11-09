@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Box3, Group, MathUtils, Vector3 } from 'three';
+import { Group, MathUtils, Vector3 } from 'three';
 import { seatCm, slotArtifact, useViewer, type SlotId } from '../store';
 import { cm } from '../lib/units';
 import { FACE_PANEL_YAW_DEG, ROTATION_STEP_DEG } from './presets';
 import { ensureModel, getModel } from '../library/models';
 import { grabRef } from './grab';
+import { orientedBounds, toQuaternion } from './orient';
 
 /** Longest axis of an object with no known real size, metres. Auto-fit normalises to this. */
 const TARGET_LONGEST = 0.45;
@@ -30,6 +31,7 @@ const STEP_SMOOTHING = 9;
 export function ArtifactMesh({ id }: { id: SlotId }) {
   const spin = useRef<Group>(null);
   const fit = useRef<Group>(null);
+  const orient = useRef<Group>(null);
   const handle = useMemo(() => grabRef(id), [id]);
 
   const meta = useViewer((s) => slotArtifact(s, id));
@@ -57,9 +59,16 @@ export function ArtifactMesh({ id }: { id: SlotId }) {
   // gets a clone, which shares geometry, materials and textures — it costs a few nodes.
   const model = useMemo(() => (cached && id === 'B' ? cached.clone() : cached), [cached, id]);
 
+  // The upright correction from the Orientation window. Keyed on the numbers, not the
+  // array, so an unrelated metadata patch does not re-measure a 260K-vertex scan.
+  const orientKey = meta?.orientation?.join(',') ?? '';
+  const quat = useMemo(() => toQuaternion(meta?.orientation), [orientKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Measured *after* the correction, so a scan that arrived lying down is sized by its
+  // standing height and seated on what is now its base.
   const { scale, offset, size } = useMemo(() => {
     if (!model) return { scale: 1, offset: new Vector3(), size: new Vector3() };
-    const box = new Box3().setFromObject(model);
+    const box = orientedBounds(model, quat);
     const sz = box.getSize(new Vector3());
     const centre = box.getCenter(new Vector3());
     const longest = Math.max(sz.x, sz.y, sz.z) || 1;
@@ -70,13 +79,14 @@ export function ArtifactMesh({ id }: { id: SlotId }) {
       offset: new Vector3(-centre.x, -box.min.y, -centre.z),
       size: sz,
     };
-  }, [model, meta?.heightCm]);
+  }, [model, meta?.heightCm, quat]);
 
   useLayoutEffect(() => {
+    orient.current?.quaternion.copy(quat);
     if (!fit.current) return;
     fit.current.position.set(offset.x * scale, offset.y * scale, offset.z * scale);
     fit.current.scale.setScalar(scale);
-  }, [offset, scale]);
+  }, [offset, scale, quat]);
 
   const yawDeg = FACE_PANEL_YAW_DEG + (meta?.yawOffsetDeg ?? 0) + slot.rotationStep * ROTATION_STEP_DEG + slot.nudgeDeg;
 
@@ -101,7 +111,9 @@ export function ArtifactMesh({ id }: { id: SlotId }) {
     <group position={[cm(slot.xCm), seat, cm(slot.gapCm)]} scale={total}>
       <group ref={spin}>
         <group ref={fit}>
-          <primitive object={model} />
+          <group ref={orient}>
+            <primitive object={model} />
+          </group>
         </group>
       </group>
       <mesh ref={handle} visible={false} position={[0, tall / 2, 0]}>

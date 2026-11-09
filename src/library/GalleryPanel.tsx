@@ -38,6 +38,8 @@ export function GalleryPanel() {
   const setArtifacts = useViewer((s) => s.setArtifacts);
   const setArtworks = useViewer((s) => s.setArtworks);
   const setImportError = useViewer((s) => s.setImportError);
+  const openOrient = useViewer((s) => s.openOrient);
+  const active = useViewer((s) => s.active);
 
   // Packing a gallery of 100 MB scans takes a moment; the buttons report their own state
   // rather than borrowing the import modal, which is about loading a single file.
@@ -187,6 +189,17 @@ export function GalleryPanel() {
                     {a.untextured && <span className="gallery-warn">no texture</span>}
                     {a.format.toUpperCase()} · {mb(a.sizeBytes)}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className={`gallery-orient${a.orientation ? ' is-set' : ''}`}
+                  // From the list, the floor / pedestal choice applies to the active slot
+                  // only when this object is the one standing in it.
+                  onClick={() => openOrient(a.id, i === objectIndex ? active : null)}
+                  title={a.orientation ? 'Orientation corrected — adjust or screenshot' : 'Fix orientation / screenshot'}
+                  aria-label={`Orientation for ${a.name}`}
+                >
+                  ⟲
                 </button>
                 <button
                   type="button"

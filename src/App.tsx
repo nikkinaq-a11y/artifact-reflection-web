@@ -28,6 +28,7 @@ import { StagePanel } from './ui/StagePanel';
 import { Notice, RightRail } from './ui/RightRail';
 import { Snapshot } from './scene/Snapshot';
 import { useKeybinds } from './ui/keybinds';
+import { OrientDialog } from './ui/OrientDialog';
 import { cm } from './lib/units';
 import { DropZone } from './import/DropZone';
 import { GalleryPanel } from './library/GalleryPanel';
@@ -159,9 +160,15 @@ function Hud() {
 
         <div className="hud-row">
           <span className="hud-key">Pedestal</span>
-          {pedestalVisible ? box(pedestal) : <span className="dim">hidden — V to show</span>}
+          {slot.onFloor ? (
+            <span className="dim">none — standing on the {plinth.on ? 'plinth' : 'floor'}</span>
+          ) : pedestalVisible ? (
+            box(pedestal)
+          ) : (
+            <span className="dim">hidden — V to show</span>
+          )}
         </div>
-        {baseOn && (
+        {baseOn && !slot.onFloor && (
           <div className="hud-row">
             <span className="hud-key">Base</span>
             {box(base)}
@@ -211,6 +218,7 @@ function Hud() {
                 <li><b>L</b> pedestal length <span className="dim">(Shift+L to undo)</span></li>
                 <li><b>V</b> show / hide pedestal</li>
                 <li><b>E</b> base on the pedestal on / off</li>
+                <li><b>J</b> fix orientation <span className="dim">(face-down or sideways scans)</span></li>
               </ul>
               <h3>Two objects</h3>
               <ul>
@@ -276,8 +284,9 @@ function Grounding({ id }: { id: SlotId }) {
   const seat = cm(useViewer((s) => seatCm(s, s.slots[id])));
   const theme = useViewer((s) => s.studioTheme);
 
-  // Goes away with the pedestal: a floating object has nothing to cast onto.
-  if (!slot.pedestalVisible) return null;
+  // Goes away with the pedestal: a floating object has nothing to cast onto. On the
+  // floor there is always something under it.
+  if (!slot.pedestalVisible && !slot.onFloor) return null;
 
   return (
     <ContactShadows
@@ -381,6 +390,7 @@ export default function App() {
       <GalleryPanel />
       <StagePanel />
       <RightRail />
+      <OrientDialog />
       <Notice />
     </div>
   );

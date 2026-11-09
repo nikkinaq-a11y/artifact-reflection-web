@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Reflection Viewer",
   "mainBinaryName": "Reflection Viewer",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "identifier": "edu.duke.noma.reflectionviewer",
   "build": {
     "frontendDist": "../dist",

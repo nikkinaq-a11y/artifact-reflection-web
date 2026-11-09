@@ -190,6 +190,8 @@ function SlotFields({ id }: { id: SlotId }) {
   const updateSlot = useViewer((s) => s.updateSlot);
   const moveSlotTo = useViewer((s) => s.moveSlotTo);
   const patchArtifactMeta = useViewer((s) => s.patchArtifactMeta);
+  const openOrient = useViewer((s) => s.openOrient);
+  const plinthOn = useViewer((s) => s.plinth.on);
   const { station: pairing, recs } = useRecommendations();
 
   const turn = Math.round((slot.rotationStep * ROTATION_STEP_DEG + slot.nudgeDeg) * 10) / 10;
@@ -232,6 +234,38 @@ function SlotFields({ id }: { id: SlotId }) {
         </select>
       </label>
       <div className="stage-row">
+        <span>Upright</span>
+        <button
+          type="button"
+          className="stage-btn"
+          disabled={!meta}
+          title="Fix a scan that imported face-down or sideways, and take screenshots (J)"
+          onClick={() => meta && openOrient(meta.id, id)}
+        >
+          Orientation…
+        </button>
+        <em>{meta?.orientation ? 'corrected' : 'as imported'}</em>
+      </div>
+      <div className="stage-row">
+        <span>Stands on</span>
+        <span className="gallery-seg stage-seg stage-inline-seg">
+          <button
+            type="button"
+            className={slot.onFloor ? undefined : 'is-on'}
+            onClick={() => updateSlot(id, { onFloor: false })}
+          >
+            Pedestal
+          </button>
+          <button
+            type="button"
+            className={slot.onFloor ? 'is-on' : undefined}
+            onClick={() => updateSlot(id, { onFloor: true })}
+          >
+            {plinthOn ? 'Plinth' : 'Floor'}
+          </button>
+        </span>
+      </div>
+      <div className="stage-row">
         <span>True height</span>
         <Num
           value={meta?.heightCm}
@@ -264,6 +298,8 @@ function SlotFields({ id }: { id: SlotId }) {
         <Num value={slot.scale} onCommit={(v) => v !== null && updateSlot(id, { scale: v })} />
         <em>×</em>
       </div>
+      {!slot.onFloor && (
+      <>
       <div className="stage-row">
         <label className="stage-check">
           <input
@@ -282,6 +318,8 @@ function SlotFields({ id }: { id: SlotId }) {
         </label>
         {slot.baseOn ? <BoxFields id={id} which="base" /> : <em>off — E</em>}
       </div>
+      </>
+      )}
     </div>
   );
 }
