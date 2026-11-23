@@ -192,7 +192,7 @@ function SlotFields({ id }: { id: SlotId }) {
   const patchArtifactMeta = useViewer((s) => s.patchArtifactMeta);
   const openOrient = useViewer((s) => s.openOrient);
   const plinthOn = useViewer((s) => s.plinth.on);
-  const { station: pairing, recs } = useRecommendations();
+  const { recs, source } = useRecommendations();
 
   const turn = Math.round((slot.rotationStep * ROTATION_STEP_DEG + slot.nudgeDeg) * 10) / 10;
 
@@ -211,10 +211,10 @@ function SlotFields({ id }: { id: SlotId }) {
           value={slot.objectIndex}
           onChange={(e) => updateSlot(id, { objectIndex: Number(e.target.value) })}
         >
-          {/* The install plan's pairing for what is on the sheet comes first. An object with
+          {/* The saved or install-plan pairing for what is on the sheet comes first. An object with
               no scan here is still listed, greyed, so the recommendation is never silent. */}
           {recs.length > 0 && (
-            <optgroup label={`Paired with ${pairing?.id} in the install plan`}>
+            <optgroup label={`Paired with ${source}`}>
               {recs.map((r) => (
                 <option key={r.tag} value={r.index < 0 ? `none-${r.tag}` : r.index} disabled={r.index < 0}>
                   {r.tag} — {r.label}

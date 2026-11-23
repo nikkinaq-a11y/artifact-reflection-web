@@ -395,14 +395,62 @@ export function recommendationsFor(
   });
 }
 
-/** The current pairing and its recommended objects, kept live as the print or library changes. */
-export function useRecommendations(): { station: Station | undefined; recs: Recommendation[] } {
+/**
+ * The objects a saved pairing put with the print on the sheet — the curator's own
+ * association, kept by Save (library/sceneSave.ts) and carried in gallery exports. The most
+ * recently saved setup for this print wins.
+ */
+export function savedPairingFor(
+  setups: { name: string; savedAt: number; artworkId: string | null; objects: { A: string | null; B: string | null }; settings: { twoUp?: boolean } }[],
+  artworkId: string | null,
+  artifacts: { id: string; name: string }[],
+): { name: string; recs: Recommendation[] } | undefined {
+  if (!artworkId) return undefined;
+  const setup = setups
+    .filter((x) => x.artworkId === artworkId && (x.objects.A || x.objects.B))
+    .sort((a, b) => b.savedAt - a.savedAt)[0];
+  if (!setup) return undefined;
+  const ids = setup.settings.twoUp ? [setup.objects.A, setup.objects.B] : [setup.objects.A];
+  const two = ids.length > 1;
+  const recs = ids.flatMap((id, i): Recommendation[] => {
+    if (!id) return [];
+    const tag = two ? `Saved ${i === 0 ? 'A' : 'B'}` : 'Saved pairing';
+    const index = artifacts.findIndex((a) => a.id === id);
+    return [
+      index < 0
+        ? { tag, label: 'object removed from the library', index: -1, missing: 'not in the library' }
+        : { tag, label: artifacts[index].name, index },
+    ];
+  });
+  return { name: setup.name, recs };
+}
+
+/**
+ * The current pairing and its recommended objects, kept live as the print, library or
+ * saved setups change. A pairing the curator saved for this print comes first; otherwise
+ * the install plan's. `source` names where the recommendation comes from.
+ */
+export function useRecommendations(): {
+  station: Station | undefined;
+  recs: Recommendation[];
+  source: string;
+} {
   const artifacts = useViewer((s) => s.artifacts);
   const artworks = useViewer((s) => s.artworks);
   const artIndex = useViewer((s) => s.artIndex);
   const stationId = useViewer((s) => s.station);
+  const setups = useViewer((s) => s.setups);
   return useMemo(() => {
     const station = pairingStation({ artworks, artIndex, station: stationId });
-    return { station, recs: recommendationsFor(station, artifacts) };
-  }, [artifacts, artworks, artIndex, stationId]);
+    const artworkId = artIndex < 0 ? null : (artworks[artIndex]?.id ?? null);
+    const saved = savedPairingFor(setups, artworkId, artifacts);
+    if (saved && saved.recs.length) {
+      return { station, recs: saved.recs, source: `“${saved.name}”` };
+    }
+    return {
+      station,
+      recs: recommendationsFor(station, artifacts),
+      source: station ? `${station.id} in the install plan` : '',
+    };
+  }, [artifacts, artworks, artIndex, stationId, setups]);
 }

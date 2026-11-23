@@ -28,6 +28,28 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 await page.setViewport({ width: 1600, height: 1000 });
 const errors = [];
+// Chrome's Save-as picker cannot be clicked headless. Stand in for it: record the call and
+// hand what is written to an ordinary download, which CDP drops in the downloads folder.
+await page.evaluateOnNewDocument(() => {
+  window.__picked = [];
+  window.showSaveFilePicker = async (opts) => {
+    window.__picked.push(opts.suggestedName);
+    return {
+      createWritable: async () => {
+        const parts = [];
+        return {
+          write: async (b) => parts.push(b),
+          close: async () => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob(parts));
+            a.download = opts.suggestedName;
+            a.click();
+          },
+        };
+      },
+    };
+  };
+});
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 page.on('console', (m) => m.type() === 'error' && errors.push(`console: ${m.text()}`));
 
@@ -161,6 +183,11 @@ await settle(2000);
 check('floor moves the object', diff(onPed, await grab()) > 0.01);
 
 console.log('7. survives a reload');
+// Save first: with nothing saved the app opens empty, by design.
+await page.keyboard.down('Meta');
+await page.keyboard.press('KeyS');
+await page.keyboard.up('Meta');
+await settle(1500);
 await page.reload({ waitUntil: 'networkidle0' });
 await settle(5000);
 await page.click('.stage .gallery-tab').catch(() => {});
@@ -177,7 +204,7 @@ const zip = zips[0] && unzipSync(readFileSync(join(dl, zips[0])));
 const manifest = zip && JSON.parse(strFromU8(zip['gallery.json']));
 const scan = manifest?.artifacts.find((a) => a.name.includes('1985_01_128'));
 check('manifest has the orientation', Array.isArray(scan?.orientation) && scan.orientation.length === 4, JSON.stringify(scan?.orientation));
-check('README notes it', strFromU8(zip['README.txt']).includes('orientation corrected'));
+check('README notes it', strFromU8(zip['README.md']).includes('orientation corrected'));
 
 await page.evaluate(() => indexedDB.deleteDatabase('artifact-reflection'));
 await page.reload({ waitUntil: 'networkidle0' });

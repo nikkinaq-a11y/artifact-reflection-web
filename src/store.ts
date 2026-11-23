@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import {
   ACRYLIC,
   BASE_DEFAULTS,
+  CAMERA_DISTANCES,
+  CAMERA_PRESETS,
   DEFAULT_LIGHT_LEVEL,
   LIGHT_LEVELS,
   LIGHT_PRESETS,
@@ -9,6 +11,7 @@ import {
   PEDESTAL_DEFAULTS,
   PLACEMENT,
   PLINTH_DEFAULTS,
+  WALL_LIGHT,
   type StudioTheme,
 } from './scene/presets';
 import type { ArtifactMeta, ArtworkMeta, SetupRecord } from './library/db';
@@ -78,6 +81,13 @@ type ViewerState = {
    */
   camNonce: number;
   reframe: () => void;
+  /**
+   * Index into CAMERA_DISTANCES — D. Held apart from camIndex on purpose: D is a second
+   * axis on whatever view is showing, not more presets. Unbounded; read through
+   * cameraDistance().
+   */
+  camDistance: number;
+  stepDistance: (dir: 1 | -1) => void;
 
   lights: Record<string, { on: boolean; intensity: number }>;
   /** Index into LIGHT_LEVELS — the five-step brightness slider on the right edge. */
@@ -224,6 +234,12 @@ type ViewerState = {
   closeOrient: () => void;
 };
 
+/** Every lamp's on/off and intensity: the rect rig plus the wall light (F). */
+const DEFAULT_LIGHTS = (): Record<string, { on: boolean; intensity: number }> => ({
+  ...Object.fromEntries(LIGHT_PRESETS.map((l) => [l.id, { on: l.on, intensity: l.intensity }])),
+  [WALL_LIGHT.id]: { on: false, intensity: WALL_LIGHT.intensity },
+});
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** Adjustment keys land on clean values rather than accumulating float drift. */
@@ -280,7 +296,8 @@ function collides(a: Slot, b: Slot): boolean {
 }
 
 const DEFAULT_SLOT: Slot = {
-  objectIndex: 0,
+  // Empty until something is put on it — the app opens on an empty pedestal.
+  objectIndex: -1,
   xCm: 0,
   gapCm: 40,
   rotationStep: 0,
@@ -320,10 +337,14 @@ export const useViewer = create<ViewerState>((set, get) => {
     prevCam: () => set((s) => ({ camIndex: s.camIndex - 1 })),
     camNonce: 0,
     reframe: () => set((s) => ({ camNonce: s.camNonce + 1 })),
+    camDistance: 0,
+    stepDistance: (dir) =>
+      set((s) => {
+        const n = CAMERA_DISTANCES.length;
+        return { camDistance: (((s.camDistance + dir) % n) + n) % n };
+      }),
 
-    lights: Object.fromEntries(
-      LIGHT_PRESETS.map((l) => [l.id, { on: l.on, intensity: l.intensity }]),
-    ),
+    lights: DEFAULT_LIGHTS(),
     lightLevel: DEFAULT_LIGHT_LEVEL,
     setLightLevel: (level) =>
       set({ lightLevel: clamp(Math.round(level), 0, LIGHT_LEVELS.length - 1) }),
@@ -338,7 +359,7 @@ export const useViewer = create<ViewerState>((set, get) => {
     setLightIntensity: (id, v) =>
       set((s) => ({ lights: { ...s.lights, [id]: { ...s.lights[id], intensity: v } } })),
 
-    slots: { A: freshSlot(), B: freshSlot({ objectIndex: 1 }) },
+    slots: { A: freshSlot(), B: freshSlot() },
     active: 'A',
     twoUp: false,
     setActive: (active) => set((s) => (s.twoUp || active === 'A' ? { active } : {})),
@@ -523,9 +544,9 @@ export const useViewer = create<ViewerState>((set, get) => {
     artworks: [],
     artIndex: -1,
     setArtworks: (artworks) =>
-      // Land on the first artwork rather than the bare sheet when the app restores a
-      // library on load: a printed sheet is the point of the setup.
-      set((s) => ({ artworks, artIndex: s.artIndex === -1 && artworks.length ? 0 : s.artIndex })),
+      // The sheet stays bare until a print is chosen: the app opens empty. Only an index
+      // that no longer exists is pulled back.
+      set((s) => ({ artworks, artIndex: s.artIndex < artworks.length ? s.artIndex : -1 })),
     addArtworkMeta: (a) =>
       set((s) => ({ artworks: [...s.artworks, a], artIndex: s.artworks.length })),
     removeArtworkMeta: (id) =>
@@ -600,6 +621,7 @@ export const seatCm = (s: Pick<ViewerState, 'plinth'>, slot: Slot) =>
 export function captureSettings(): SceneSettings {
   const s = useViewer.getState();
   const a = s.slots.A;
+  const idAt = (i: number) => (i < 0 ? null : (s.artifacts[i]?.id ?? null));
   return {
     // The v1 fields, still written so an older build opening this file gets slot A.
     pedestal: { ...a.pedestal },
@@ -613,7 +635,13 @@ export function captureSettings(): SceneSettings {
     lightLevel: s.lightLevel,
     studioTheme: s.studioTheme,
     camIndex: s.camIndex,
+    camName: CAMERA_PRESETS[((s.camIndex % CAMERA_PRESETS.length) + CAMERA_PRESETS.length) % CAMERA_PRESETS.length].name,
+    camDistance: s.camDistance,
     artIndex: s.artIndex,
+    // What stands where and what is printed, by library id as well as by position: ids
+    // survive the library being reordered, positions do not.
+    objectIds: { A: idAt(s.slots.A.objectIndex), B: idAt(s.slots.B.objectIndex) },
+    artworkId: s.artIndex < 0 ? null : (s.artworks[s.artIndex]?.id ?? null),
     slots: structuredClone(s.slots),
     twoUp: s.twoUp,
     active: s.active,
@@ -633,12 +661,29 @@ export function applySettings(next: SceneSettings | null): void {
       ...(next.panel?.gapCm !== undefined ? { gapCm: next.panel.gapCm } : {}),
       ...(next.objectScale !== undefined ? { scale: next.objectScale } : {}),
     };
+    // Ids win over positions when the file has them and the object is in the library.
+    const byId = (id: string | null | undefined, fallback: number | undefined) => {
+      if (id === null) return -1;
+      const i = id ? s.artifacts.findIndex((x) => x.id === id) : -1;
+      return i >= 0 ? i : fallback;
+    };
+    const withObject = (slot: Partial<Slot> | undefined, id: string | null | undefined) => {
+      const objectIndex = byId(id, slot?.objectIndex);
+      return objectIndex === undefined ? (slot ?? {}) : { ...slot, objectIndex };
+    };
     const slots = {
       // onFloor is reset first: a gallery or setup from before the floor option has none,
       // and it should open on its pedestals, not inherit whatever the viewer had.
-      A: normalizeSlot({ ...s.slots.A, onFloor: false, ...legacyA, ...(next.slots?.A ?? {}) }),
-      B: normalizeSlot({ ...s.slots.B, onFloor: false, ...(next.slots?.B ?? {}) }),
+      A: normalizeSlot({
+        ...s.slots.A,
+        onFloor: false,
+        ...legacyA,
+        ...withObject(next.slots?.A, next.objectIds?.A),
+      }),
+      B: normalizeSlot({ ...s.slots.B, onFloor: false, ...withObject(next.slots?.B, next.objectIds?.B) }),
     };
+    const camByName = next.camName ? CAMERA_PRESETS.findIndex((p) => p.name === next.camName) : -1;
+    const artById = next.artworkId ? s.artworks.findIndex((x) => x.id === next.artworkId) : -1;
     const twoUp = next.twoUp ?? false;
     return {
       slots,
@@ -654,8 +699,11 @@ export function applySettings(next: SceneSettings | null): void {
       polish: next.polish ?? s.polish,
       print: next.print ?? s.print,
       // Merge rather than replace: a gallery from an older version may not know about
-      // lights added since, and those should keep their defaults.
-      lights: { ...s.lights, ...next.lights },
+      // lights added since, and those should keep their defaults. Lights this build no
+      // longer has (the old front light) are dropped.
+      lights: Object.fromEntries(
+        Object.entries(DEFAULT_LIGHTS()).map(([id, d]) => [id, { ...d, ...(next.lights?.[id] ?? {}) }]),
+      ),
       // Checked rather than trusted, as the theme is: a missing or out-of-range level
       // (galleries from before the slider) keeps whatever the viewer has now.
       lightLevel:
@@ -666,9 +714,17 @@ export function applySettings(next: SceneSettings | null): void {
           : s.lightLevel,
       // There is only the white room now; galleries saved in the old dark rooms open in it.
       studioTheme: 'white',
-      camIndex: next.camIndex ?? s.camIndex,
-      artIndex: next.artIndex ?? s.artIndex,
+      camIndex: camByName >= 0 ? camByName : (next.camIndex ?? s.camIndex),
+      camDistance:
+        Number.isInteger(next.camDistance) && (next.camDistance as number) >= 0
+          ? (next.camDistance as number) % CAMERA_DISTANCES.length
+          : 0,
+      artIndex: next.artworkId === null ? -1 : artById >= 0 ? artById : (next.artIndex ?? s.artIndex),
       station: next.station ?? null,
     };
   });
 }
+
+// Dev builds only: the store on window, so probe scripts drive the same instance the app
+// uses (a bare `import('/src/store.ts')` from a page can load a second copy after HMR).
+if (import.meta.env.DEV) (window as unknown as { __viewer: typeof useViewer }).__viewer = useViewer;

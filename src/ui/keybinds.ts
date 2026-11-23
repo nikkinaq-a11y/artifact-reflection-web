@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useViewer } from '../store';
-import { PLACEMENT } from '../scene/presets';
+import { PLACEMENT, WALL_LIGHT } from '../scene/presets';
+import { saveScene } from '../library/sceneSave';
 
 /**
  * Matches the BP_KeyboardControls legend so muscle memory, any existing demo script, and
@@ -8,9 +9,14 @@ import { PLACEMENT } from '../scene/presets';
  *   C camera · O object · R rotate · P scale · H height · K width · L length · Tab help
  * Shift reverses the adjustment, exactly as the Unreal legend describes.
  *
- * V and F are additions the baseline viewer already made: hiding the pedestal and the
- * front light BP_PhotoViewerController defines but never
- * binds. They keep their meanings here.
+ * V and D are additions the baseline viewer already made: hiding the pedestal, and
+ * the camera's distance (Standard / Near / Far) on whatever view is showing.
+ *
+ * F is the wall light here — a light just above the sheet aimed at the object's front,
+ * which is the face the reflection shows (Nikki, 2026-11-16). It used to be the
+ * camera-side front light the baseline viewer has.
+ *
+ * Cmd/Ctrl+S saves the scene (library/sceneSave.ts), as the Save button does.
  *
  * Everything else is new, and all of it is the acrylic sheet. The grouping is
  * deliberate — the sheet's *placement* keys sit under the fingers next to the pedestal
@@ -38,6 +44,15 @@ import { PLACEMENT } from '../scene/presets';
 export function useKeybinds() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Cmd/Ctrl+S saves the scene from anywhere, a typed Stage field included — never the
+      // browser's "save page".
+      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyS') {
+        e.preventDefault();
+        const st = useViewer.getState();
+        if (!st.orienting) void saveScene().then((msg) => st.setNotice(msg));
+        return;
+      }
+
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLSelectElement ||
@@ -49,6 +64,10 @@ export function useKeybinds() {
       const s = useViewer.getState();
       // The Orientation window takes the keyboard while it is open (ui/OrientDialog.tsx).
       if (s.orienting) return;
+
+      // Other Cmd/Ctrl combinations belong to the browser. Without this, Cmd+C to copy
+      // would also change the camera.
+      if (e.metaKey || e.ctrlKey) return;
       const dir = e.shiftKey ? -1 : 1;
 
       switch (e.code) {
@@ -63,7 +82,10 @@ export function useKeybinds() {
           s.togglePedestal();
           break;
         case 'KeyF':
-          s.toggleLight('front');
+          s.toggleLight(WALL_LIGHT.id);
+          break;
+        case 'KeyD':
+          s.stepDistance(dir);
           break;
         case 'KeyR':
           s.stepRotation(dir);

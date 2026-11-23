@@ -4,7 +4,7 @@ import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { MathUtils, PerspectiveCamera, Spherical, Vector3 } from 'three';
 import { useViewer } from '../store';
-import { CAMERA_PRESETS, FOCUS_HEIGHT } from './presets';
+import { CAMERA_PRESETS, FOCUS_HEIGHT, cameraDistance } from './presets';
 import { rigOffset } from './rig';
 
 /**
@@ -27,6 +27,8 @@ const MAX_POLAR = 1.85;
  */
 const MAX_AZIMUTH = 1.75;
 
+// Below the nearest D stop (Close × Near ≈ 0.94 m), above the furthest (Wide × Far ≈ 4.7 m),
+// or OrbitControls clamps the camera on its first update and quietly undoes the D blend.
 const MIN_DISTANCE = 0.8;
 const MAX_DISTANCE = 6;
 
@@ -51,6 +53,7 @@ const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2
 export function CameraRig() {
   const camIndex = useViewer((s) => s.camIndex);
   const camNonce = useViewer((s) => s.camNonce);
+  const camDistance = useViewer((s) => s.camDistance);
   const camera = useThree((s) => s.camera) as PerspectiveCamera;
   const controls = useRef<OrbitControlsImpl>(null);
 
@@ -68,6 +71,8 @@ export function CameraRig() {
   const toArc = useRef(new Spherical());
   const arc = useRef(new Spherical());
   const duration = useRef(BLEND_MIN_SECONDS);
+  /** What the last blend was for — so a D press can tell it is only a distance change. */
+  const last = useRef<{ index: number; nonce: number; factor: number } | null>(null);
 
   useEffect(() => {
     const n = CAMERA_PRESETS.length;
@@ -77,13 +82,35 @@ export function CameraRig() {
     fromTarget.current.copy(controls.current?.target ?? new Vector3(0, FOCUS_HEIGHT, 0));
     fromFov.current = camera.fov;
 
-    // Presets are authored around the default object position. They follow the objects
-    // when a preset is chosen — not continuously, so dragging an object never drags the
-    // camera with it.
-    const [ox, oy, oz] = rigOffset(useViewer.getState());
-    toPos.current.set(...preset.position).add(scratch.current.set(ox, oy, oz));
-    toTarget.current.set(...preset.target).add(scratch.current);
-    toFov.current = preset.fov;
+    const factor = cameraDistance(camDistance).factor;
+    const prev = last.current;
+    last.current = { index: camIndex, nonce: camNonce, factor };
+
+    /** Push `pos` out from `target` by `k` — along the ground only for a fixed-height view. */
+    const dolly = (pos: Vector3, target: Vector3, k: number) => {
+      const y = pos.y;
+      pos.sub(target).multiplyScalar(k).add(target);
+      if (preset.fixedHeight) pos.y = y;
+    };
+
+    if (prev && prev.index === camIndex && prev.nonce === camNonce) {
+      // D only. Dolly the view actually on screen rather than snapping back to the preset,
+      // so a shot that has been orbited or zoomed keeps its angle and only moves in or out.
+      toTarget.current.copy(fromTarget.current);
+      toPos.current.copy(fromPos.current);
+      dolly(toPos.current, toTarget.current, factor / prev.factor);
+      toFov.current = fromFov.current;
+    } else {
+      // Presets are authored around the default object position. They follow the objects
+      // when a preset is chosen — not continuously, so dragging an object never drags the
+      // camera with it. A fixed-height view follows along the floor but keeps its height.
+      const [ox, oy, oz] = rigOffset(useViewer.getState());
+      toPos.current.set(...preset.position).add(scratch.current.set(ox, oy, oz));
+      if (preset.fixedHeight) toPos.current.y = preset.position[1];
+      toTarget.current.set(...preset.target).add(scratch.current);
+      dolly(toPos.current, toTarget.current, factor);
+      toFov.current = preset.fov;
+    }
 
     // Blend round the subject, not across it: interpolate the camera's angle and distance
     // about its target. A straight line between two views on opposite sides cuts in front
@@ -103,7 +130,7 @@ export function CameraRig() {
     t.current = 0;
     blending.current = true;
     if (controls.current) controls.current.enabled = false;
-  }, [camIndex, camNonce, camera]);
+  }, [camIndex, camNonce, camDistance, camera]);
 
   useFrame((_, dt) => {
     const c = controls.current;

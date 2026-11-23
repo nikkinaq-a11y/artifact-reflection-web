@@ -98,7 +98,7 @@ console.log('  gallery rows:', rows);
 console.log('6. reload — persistence');
 await page.reload({ waitUntil: 'networkidle0' });
 await page.waitForFunction(
-  () => document.querySelector('.hud')?.textContent?.includes('/2'),
+  () => document.querySelector('.hud')?.textContent?.includes('empty pedestal'),
   { timeout: 120000, polling: 500 },
 );
 await settle(3000);

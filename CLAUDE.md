@@ -51,10 +51,10 @@ up. Do not try to prompt for credentials.
 ## Status
 
 Working: acrylic sheet with real planar reflection and print compositing, reflection sharpness
-falling off with distance from the sheet, 13 camera presets +
+falling off with distance from the sheet, 14 camera presets × 3 distance stops (D) +
 click-drag orbit fenced to the front half-space, sheet width / mount height / gap in cm, reflectance
 / surface finish / print brightness, the white gallery room (the only one), pedestal in cm, stepped rotation,
-scale, front light, drag-and-drop import of both objects and prints, IndexedDB library with a
+scale, wall light (F), drag-and-drop import of both objects and prints, IndexedDB library with a
 two-tab gallery, gallery export/import as `.zip` carrying objects *and* prints *and* the staging,
 PWA offline install, Tauri Mac app.
 
@@ -66,8 +66,8 @@ plinth, and each object's position, true height, pedestal and base; and the eigh
 stations staged straight from the install plan. The sheet's height can now be pinned (the print
 is then cover-cropped); objects with a known real height render at true scale.
 
-Verified with `verify-reflection.mjs` (17/17), `verify-import.mjs`, `verify-packaging.mjs` and
-`verify-stage.mjs` (56/56) and `verify-seed.mjs` (10/10).
+Verified with `verify-reflection.mjs`, `verify-import.mjs`, `verify-packaging.mjs`,
+`verify-stage.mjs`, `verify-orient.mjs` and `verify-save.mjs`.
 
 Not done: no thumbnails, no decimation *in the app* (big scans are shrunk offline — see below),
 and the print does not respond to scene lighting (see Known gaps in the README).
@@ -80,16 +80,14 @@ replace them verbatim once captured. It is all plain data so the swap touches on
 collection. Collections travel as exported `.zip` files. Baking artifacts into the build is a
 collection-rights decision; do not do it without asking.
 
-**Local builds start with the BM38–49 pairing set; the published site does not.** Since
-2026-10-20 the starter gallery is every scan and print the stations use (7 objects, 12 prints, all
-in `public/seed/stations/`, gitignored). `src/library/seed.ts` derives the list from `STATIONS` —
-there is no `seed.json` any more — imports it once per browser (`localStorage` `seed-loaded-v2`),
-then opens on BM38. A browser that had the v1 starter gallery (four NOMA scans) has exactly those
-four removed by name and the pairing set added; anything the curator added stays. GitHub Pages
-builds from the repo, where the folder does not exist, so the public gallery stays empty — seeding
-is local-only until the museum clears scans for public release (decided with Nikki 2026-09-24).
-Clear both seed keys and the database to reseed. Every verify script sets both keys first, or a
-fresh profile imports the whole set underneath the test.
+**The app opens empty — everywhere** (Nikki, 2026-11-22: "default is that it opens empty").
+No starter gallery is preloaded any more, local builds included: the scene opens on an empty
+pedestal and a bare sheet, and the library holds only what the curator has added. A scene saved
+with Save / Cmd+S is the one exception — it comes back on launch. `seed.ts` and
+`verify-seed.mjs` (the 2026-10-20 auto-import of the BM38–49 pairing set, and its v1 migration)
+are deleted; `seed-loaded-*` keys still set by some scripts are now inert. Choosing a station
+in the Stage panel still fetches its files on demand where `public/seed/stations/` exists.
+`DEFAULT_SLOT.objectIndex` is -1 and `setArtworks` no longer jumps to the first print.
 
 **The station assets live in `public/seed/stations/` (gitignored, ~65 MB).** They are not seeded;
 choosing a station in the Stage panel imports what it needs on demand and reuses it after. Prints
@@ -196,7 +194,12 @@ multiplier on the rect rig, the shadow spot and the wall washes (not the environ
 reads it back in the same task (no `preserveDrawingBuffer`). Files and gallery exports both go
 through `lib/saveFile.ts`: a download in the browser, the native Save panel in the Mac app
 (`choose_save_path` / `write_saved_file` in `src-tauri/src/lib.rs`, from the baseline viewer —
-an `<a download>` does nothing in the app's WebKit window).
+an `<a download>` does nothing in the app's WebKit window). **Gallery export always asks where
+to save** (Nikki, 2026-11-22): `pickSaveTarget` runs straight from the click, *before* the zip
+is built — the Mac app's Save panel, or in Chrome/Edge the browser's `showSaveFilePicker` (it
+only opens during the user's gesture, which packing a gallery outlasts). Safari/Firefox have no
+picker and fall back to a download. Cancel exports nothing. Snapshots still go straight to
+Downloads in a browser.
 
 **Camera presets run as one sweep** (right side outward → centre → left side outward), and
 CameraRig blends along an arc about the subject with time scaled to the angle — so C never
@@ -219,6 +222,42 @@ uses a clone of the cached model (one parent per scene graph) and scene keys are
 the plinth top (or floor), seatCm returns floorCm. Placement and collisions still use the
 pedestal footprint. Toggling bumps `camNonce` so the camera re-aims — otherwise the object drops
 out of the shot. applySettings resets it to false for galleries/setups that predate it.
+
+**Round of 2026-11-16 (Nikki's list):**
+- **D** steps the camera distance — Standard (as authored, default) / Near ×0.72 / Far ×1.38
+  (`CAMERA_DISTANCES`). A D press dollies the view *on screen* about its orbit target; a new
+  preset arrives at its framing × the current factor. `camDistance` rides in settings.
+- **Eye Level** (index 9, between Print and the left side): x/z follow the subject, height is
+  fixed at `EYE_HEIGHT_M` (135 cm above the floor) via `fixedHeight` — D dollies it along the
+  floor only. The one dead-on view; the object eclipses its reflection on purpose. Settings
+  now store the view by `camName` too, since inserting it shifted the left-side indices.
+- **F is the wall light** (`WALL_LIGHT`, `Lighting.tsx › WallLight`), replacing the old
+  camera-side front light (removed from `LIGHT_PRESETS`; old galleries' `lights.front` is
+  dropped on load). A rect light 12 cm above the sheet's top edge, 18 cm off the wall, at the
+  subject's x, aimed at the subject — it lights the faces turned to the sheet, i.e. what the
+  reflection shows. Placed from live state each render. Off by default; while on, a "Wall
+  light" slider (0–300 %, `maxIntensity`) appears under Light on the right rail. Scaled by
+  the brightness step like the rest of the rig. It also spills a pool onto the wall above
+  the sheet — physically right for a wall-mounted head.
+- **The pedestal "lip" was the bounce light.** It hung tilted at [0, 1.0, 0.72] with its
+  lower edge 7 cm below the pedestal top and 1.5 cm off its front face, so it painted a
+  hard-edged band down the top of the front face (rect lights cut off at their own plane —
+  hence the hard bottom edge). It now lies flat, facing up (`rotation: [π/2,0,0]`; lookAt is
+  degenerate along +y), 2 cm above the seat, so nothing below the seat can receive it.
+  Found by rendering with each light off and diffing; it only shows without a base riser.
+- **Save** (right rail, or Cmd/Ctrl+S — `library/sceneSave.ts`): writes the scene to
+  `localStorage` `reflection-scene-v1` (restored on launch; without one the app opens
+  empty) *and* upserts a saved setup — the loaded one, else the one with
+  the same print + object(s), else a new one named "BMxx — object" / "print · object". Setups
+  are the pairing record; they lead `useRecommendations()` for their print ("Paired with
+  “…”") ahead of the install plan, and travel in gallery zips. Cmd/Ctrl combos no longer fire
+  scene keys (Cmd+C used to change the camera); Cmd+S works even with a Stage field focused.
+- **Gallery zips**: settings now carry `objectIds` / `artworkId` (applySettings prefers ids
+  over positions), and `README.txt` became **`README.md`** — every saved pairing with print,
+  object(s), pedestal/base/plinth sizes, gap, turn. gallery.json stays the machine record;
+  the README is for people. Import now sets the library *before* applying the scene.
+- `window.__viewer` (dev builds only) is the store, for scripts: a bare
+  `import('/src/store.ts')` from the page can load a second instance after HMR.
 
 **Saved setups** (Stage panel) live in the IndexedDB `setups` store (DB version 2), are the
 gallery's `SceneSettings` plus the object/print **ids** (not indices — the library reorders), and
@@ -328,8 +367,8 @@ node scripts/verify-reflection.mjs ./shots    # THE one: reflection, print, shee
 node scripts/verify-import.mjs ./shots        # import, cycle, reload, remove
 node scripts/verify-packaging.mjs ./shots     # export/import + offline (needs preview on 4179)
 node scripts/verify-stage.mjs ./shots/stage   # stations, confirm-to-move, setups, typed cm (needs public/seed/stations)
-node scripts/verify-seed.mjs ./shots/stage    # pairing set preloads, v1 seed migrates, once only
 node scripts/verify-orient.mjs ./shots/orient # orientation window, screenshots, floor, zip round trip (22)
+node scripts/verify-save.mjs ./shots/save     # D, Eye Level, wall light, Save → reload, pairings, zip + README.md (32)
 ```
 
 Always typecheck and re-run at least `verify-reflection.mjs` after changes; it catches rendering
@@ -340,8 +379,9 @@ regressions that typechecking cannot.
 - Scene/light/camera/sheet/pedestal values live as plain data in `src/scene/presets.ts`, never
   inline in components, so the real Unreal values can be dropped in without touching logic.
 - Keybindings mirror the baseline viewer and the Unreal `BP_KeyboardControls` legend exactly
-  (C O R P H K L V F, Shift to reverse, Tab for help — B, the old room cycle, is gone). The additions are all the acrylic:
-  **I** snapshot · **J** orientation window · **T** second object · **1**/**2** active object · **E** base · **Y** plinth · **arrows** nudge ·
+  (C D O R P H K L V F, Shift to reverse, Tab for help — B, the old room cycle, is gone; F is the
+  wall light here, not the front light). The additions are all the acrylic:
+  **I** snapshot · **Cmd+S** save · **J** orientation window · **T** second object · **1**/**2** active object · **E** base · **Y** plinth · **arrows** nudge ·
   **A** print · **G** gap · **N** sheet width · **M** mount height · **Z** reflectance ·
   **U** surface finish · **X** print brightness.
 - The gallery is deliberately **not** on a key — it lives behind a permanent tab so it is

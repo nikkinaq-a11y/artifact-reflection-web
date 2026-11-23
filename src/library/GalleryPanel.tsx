@@ -6,8 +6,9 @@ import { clearArt, dropArt } from './artworks';
 import { useImportFiles } from '../import/useImport';
 import { ACCEPTED_EXTENSIONS } from '../import/loadModel';
 import { exportGallery, importGallery } from './galleryFile';
-import { saveFile } from '../lib/saveFile';
+import { pickSaveTarget } from '../lib/saveFile';
 import { refreshSetups } from './setups';
+import { rememberScene } from './sceneSave';
 import { useRecommendations } from './stations';
 
 const mb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
@@ -46,7 +47,7 @@ export function GalleryPanel() {
   const [busy, setBusy] = useState<'export' | 'import' | null>(null);
 
   const importFiles = useImportFiles();
-  const { station: pairing, recs } = useRecommendations();
+  const { recs, source } = useRecommendations();
 
   const removeObject = async (id: string) => {
     await deleteArtifact(id);
@@ -70,13 +71,26 @@ export function GalleryPanel() {
   );
 
   const doExport = async () => {
-    setBusy('export');
     setImportError(null);
+    // Checked before asking where to save, so an empty library never leaves an empty file.
+    if (artifacts.length === 0 && artworks.length === 0) {
+      setImportError('Nothing to export — the library has no objects and no artworks.');
+      return;
+    }
     try {
-      const blob = await exportGallery(captureSettings());
       const stamp = new Date().toISOString().slice(0, 10);
-      // Through saveFile, not a download link: in the Mac app a link click saves nothing.
-      await saveFile(blob, `reflection-gallery-${stamp}.zip`);
+      // Where it goes is asked first, straight from the click: the Mac app's Save panel, or
+      // the browser's Save-as picker, which only opens during the click itself — packing a
+      // gallery of large scans takes long enough to lose that. Cancel exports nothing.
+      const target = await pickSaveTarget(`reflection-gallery-${stamp}.zip`, {
+        description: 'Reflection Viewer gallery',
+        mime: 'application/zip',
+        ext: '.zip',
+      });
+      if (!target) return;
+      setBusy('export');
+      const blob = await exportGallery(captureSettings());
+      await target.write(blob);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Export failed.');
     } finally {
@@ -97,13 +111,17 @@ export function GalleryPanel() {
       // library, so both caches have to go or removed entries would linger in memory.
       clearModels();
       clearArt();
-      applySettings(settings);
+      // The library first, then the scene: the scene finds its objects and print by id.
       setArtifacts(await listArtifactMeta());
       setArtworks(await listArtworkMeta());
+      applySettings(settings);
+      useViewer.setState({ setupId: null });
+      useViewer.getState().reframe();
       await refreshSetups();
-      // A gallery that records which object stands where keeps it — the library is in
-      // date-added order, which an import preserves. An older one starts on the first.
+      // A gallery that records which object stands where keeps it. An older one starts on the first.
       if (!settings?.slots) selectObject(0);
+      // The imported staging becomes the scene this browser opens on.
+      rememberScene();
       if (count === 0 && artworkCount === 0) {
         setImportError('That gallery contained no objects and no artworks.');
       }
@@ -175,7 +193,7 @@ export function GalleryPanel() {
                     {r.tag} — {r.label}
                   </span>
                   <span className="gallery-meta">
-                    {r.missing ?? `${pairing?.id} · ${artifacts[r.index]?.name}`}
+                    {r.missing ?? `${source.replace(/ in the install plan$/, '')} · ${artifacts[r.index]?.name}`}
                   </span>
                 </button>
               </li>

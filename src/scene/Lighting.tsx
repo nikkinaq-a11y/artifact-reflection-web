@@ -2,8 +2,17 @@ import { useEffect, useMemo, useRef } from 'react';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { Object3D, RectAreaLight, SpotLight } from 'three';
 import { useViewer } from '../store';
-import { LIGHT_LEVELS, LIGHT_PRESETS, STUDIO_THEMES, WALL_WASH } from './presets';
+import {
+  LIGHT_LEVELS,
+  LIGHT_PRESETS,
+  PANEL_Z,
+  RIG_ORIGIN,
+  STUDIO_THEMES,
+  WALL_LIGHT,
+  WALL_WASH,
+} from './presets';
 import { useRigOffset } from './rig';
+import { usePanelGeometry } from './panelGeometry';
 
 /**
  * Mirrors the UE RectLight rig. RectAreaLight is three.js's analogue of Unreal's
@@ -65,6 +74,7 @@ export function Lighting() {
   return (
     <>
       {wallWash > 0 && <WallWash intensity={wallWash * k} />}
+      <WallLight k={k} subject={offset} />
       <group position={offset}>
         {objects.map(({ preset, light }) => (
           <primitive key={preset.id} object={light} />
@@ -127,4 +137,35 @@ function WallWash({ intensity }: { intensity: number }) {
       ))}
     </>
   );
+}
+
+/**
+ * F — the wall light: just above the sheet's top edge, a short reach out from the wall,
+ * aimed at the objects so it lights the faces turned toward the sheet — the faces the
+ * reflection is made of. Positioned from the live scene every render (sheet top, where the
+ * objects are), so it stays out of frame above the sheet and on target wherever they move.
+ */
+function WallLight({ k, subject }: { k: number; subject: [number, number, number] }) {
+  const state = useViewer((s) => s.lights[WALL_LIGHT.id]);
+  const { top } = usePanelGeometry();
+  const light = useMemo(
+    () => new RectAreaLight(WALL_LIGHT.color, WALL_LIGHT.intensity, WALL_LIGHT.width, WALL_LIGHT.height),
+    [],
+  );
+
+  const x = RIG_ORIGIN[0] + subject[0];
+  const y = RIG_ORIGIN[1] + subject[1];
+  const z = RIG_ORIGIN[2] + subject[2];
+  useEffect(() => {
+    light.position.set(x, top + WALL_LIGHT.aboveSheetM, PANEL_Z + WALL_LIGHT.offWallM);
+    // RectAreaLight emits along its local -Z, which is where lookAt points it.
+    light.lookAt(x, y, z);
+  }, [light, x, y, z, top]);
+
+  useEffect(() => {
+    light.visible = Boolean(state?.on);
+    light.intensity = (state?.intensity ?? WALL_LIGHT.intensity) * k;
+  }, [light, state, k]);
+
+  return <primitive object={light} />;
 }

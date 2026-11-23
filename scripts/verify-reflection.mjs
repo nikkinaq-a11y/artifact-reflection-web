@@ -268,8 +268,13 @@ await page.reload({ waitUntil: 'networkidle0' });
 await settle(4000);
 await shot('14-reloaded');
 const after = await hud();
-check('object survived reload', after.includes('1/1'));
-check('artwork survived reload', after.includes('Facsimilie1'));
+const lib = await page.evaluate(() => {
+  const s = window.__viewer.getState();
+  return { objects: s.artifacts.length, prints: s.artworks.map((a) => a.name) };
+});
+check('object survived reload (in the library)', lib.objects === 1);
+check('artwork survived reload (in the library)', lib.prints.some((n) => n.includes('Facsimilie1')));
+check('…and the app opens empty: empty pedestal, bare sheet', after.includes('empty pedestal') && after.includes('bare sheet'));
 
 console.log('');
 if (errors.length) {

@@ -30,6 +30,12 @@ export type CameraPreset = {
   target: [number, number, number];
   /** vertical FOV, degrees */
   fov: number;
+  /**
+   * The camera's height is a fixed height above the floor rather than relative to the
+   * subject: it follows the objects along the wall and out from it, never up or down.
+   * For the eye-level view, where the point is a standing visitor's height.
+   */
+  fixedHeight?: boolean;
 };
 
 /** Front face of the acrylic sheet. The whole scene is laid out around this plane. */
@@ -37,6 +43,28 @@ export const PANEL_Z = 0;
 
 /** Height of the composition's visual centre above the floor, metres. */
 export const FOCUS_HEIGHT = 1.08;
+
+/** A standing adult's eye height, metres above the floor — the Eye Level view. */
+export const EYE_HEIGHT_M = 1.35;
+
+/**
+ * D holds the view and changes only how far back it is taken from — the baseline viewer's
+ * control, brought over. The factor scales the camera's distance from what it is looking
+ * at; the FOV is left alone so the set reads as one lens from nearer or further rather
+ * than a different, wider shot. Standard is each preset as authored, and the default.
+ * CameraRig's MIN/MAX_DISTANCE clear the nearest and furthest of these.
+ */
+export const CAMERA_DISTANCES: { name: string; factor: number }[] = [
+  { name: 'Standard', factor: 1 },
+  { name: 'Near', factor: 0.72 },
+  { name: 'Far', factor: 1.38 },
+];
+
+/** Safe lookup — the index is cycled unbounded and can arrive out of range from a gallery file. */
+export function cameraDistance(i: number) {
+  const n = CAMERA_DISTANCES.length;
+  return CAMERA_DISTANCES[(((Math.trunc(i) || 0) % n) + n) % n];
+}
 
 /**
  * Where the cameras aim: between the object and the sheet, so a preset frames the piece
@@ -76,6 +104,17 @@ export const CAMERA_PRESETS: CameraPreset[] = [
   // Nearly square to the sheet — minimum Fresnel, so the print reads at full strength and
   // the reflection is at its faintest. The view for judging the artwork on its own.
   { name: 'Print', position: [0.3, 1.15, 2.75], target: [0, 1.05, 0], fov: 30 },
+  // A visitor standing square in front of the piece: 135 cm eye height, on the object's
+  // own axis, looking at its back and the sheet behind it. The one dead-on view — the
+  // object eclipses its own reflection, which is exactly what a visitor here sees.
+  // Asked for by Nikki, 2026-11-16.
+  {
+    name: 'Eye Level',
+    position: [0, EYE_HEIGHT_M, 2.6],
+    target: [0, 1.12, 0.2],
+    fov: 36,
+    fixedHeight: true,
+  },
 
   // ── Left side, outward ──
   { name: 'Reflection Left', position: [-1.45, 1.3, 2.05], target: F, fov: 30 },
@@ -420,28 +459,22 @@ export const LIGHT_PRESETS: LightPreset[] = [
     on: true,
   },
   {
-    // FrontLight / bFrontLightOn / SavedFrontIntensity from BP_PhotoViewerController —
-    // defined there but bound to no key, and living in this level rather than the
-    // baseline one. Off by default; F switches it on. It lights the object's camera-side
-    // face, which flattens form but is what you want for reading surface detail.
-    id: 'front',
-    label: 'Front',
-    position: [0, 1.4, 1.95],
-    aimAt: OBJ,
-    width: 0.8,
-    height: 0.8,
-    intensity: 9,
-    color: '#fff6ec',
-    on: false,
-  },
-  {
     // Stands in for the Lumen bounce off the pedestal top that three.js has no GI for.
     // Kept weak and close so it lifts the object's underside without lighting the
     // pedestal — which the sheet would then reflect.
+    //
+    // It lies flat, facing straight up, 2 cm above the pedestal top (RIG_ORIGIN is the
+    // seat + SUBJECT_LIFT_M). A rect light lights nothing behind its own plane, so nothing
+    // below the seat can receive it. It used to hang tilted at [0, 1.0, 0.72] aimed up at
+    // the object, with its lower edge 7 cm below the pedestal top and 1.5 cm off its front
+    // face — which painted a hard-edged bright band down the top of the pedestal's front,
+    // the "lip" Nikki spotted 2026-11-16.
     id: 'bounce',
     label: 'Bounce',
-    position: [0, 1.0, 0.72],
-    aimAt: [0, 1.35, 0.4],
+    position: [0, OBJ[1] - SUBJECT_LIFT_M + 0.02, 0.72],
+    aimAt: [0, 2, 0.72],
+    // Straight up, stated as an Euler: lookAt is degenerate when aiming along +y.
+    rotation: [Math.PI / 2, 0, 0],
     width: 0.5,
     height: 0.35,
     intensity: 2,
@@ -449,6 +482,32 @@ export const LIGHT_PRESETS: LightPreset[] = [
     on: true,
   },
 ];
+
+/**
+ * The wall light — F. A light mounted on the wall just above the top edge of the sheet,
+ * out of the frame, angled down and out at the object. The object faces the sheet, so its
+ * front is what the reflection shows and what the camera never sees directly; this is the
+ * light a real install would hang to put that face in the mirror. (Nikki, 2026-11-16 — it
+ * replaces the old camera-side front light that F used to toggle.)
+ *
+ * It is placed from the live scene rather than fixed: above wherever the sheet's top edge
+ * is, along the wall at the objects, and aimed at them, so a station on a low pedestal or a
+ * tall print still gets it. Off by default, as the front light was; the Wall light slider on
+ * the right edge appears while it is on and sets `intensity` between 0 and `maxIntensity`.
+ */
+export const WALL_LIGHT = {
+  id: 'wall',
+  label: 'Wall light',
+  /** Above the sheet's top edge, metres — just clear of it. */
+  aboveSheetM: 0.12,
+  /** Out from the wall's face, metres: a track head's reach. */
+  offWallM: 0.18,
+  width: 0.7,
+  height: 0.25,
+  intensity: 40,
+  maxIntensity: 120,
+  color: '#fff3e6',
+};
 
 /**
  * The object is turned to face the sheet: its front goes into the reflection, its back to

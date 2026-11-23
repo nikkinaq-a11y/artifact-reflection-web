@@ -311,7 +311,7 @@ mkdirSync(dl, { recursive: true });
 for (const f of readdirSync(dl)) if (f.endsWith('.png')) unlinkSync(join(dl, f));
 const cdp = await page.createCDPSession();
 await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dl });
-await page.click('.rail-button');
+await page.click('.rail-button[aria-label="Save a snapshot"]');
 await settle(2500);
 const notice = await page.evaluate(() => document.querySelector('.notice')?.textContent ?? '');
 check('the snapshot button saves', /Snapshot saved — .*Test BM45 - .*\.png/.test(notice), notice.slice(0, 90));
@@ -365,6 +365,11 @@ check('C sweeps out along the right side first', order.every((n) => /Right|Grazi
 
 console.log('10. survives a reload of the library');
 await stage('BM45');
+// Save first: with nothing saved the app opens empty, by design.
+await page.keyboard.down('Meta');
+await page.keyboard.press('KeyS');
+await page.keyboard.up('Meta');
+await settle(1500);
 await page.reload({ waitUntil: 'networkidle0' });
 await settle(3000);
 t = await hud();

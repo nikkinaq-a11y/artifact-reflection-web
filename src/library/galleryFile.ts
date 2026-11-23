@@ -30,7 +30,7 @@ import type { Slot, SlotId } from '../store';
  *
  * Layout inside the zip:
  *   gallery.json                       manifest + scene settings
- *   README.txt                         plain-text summary for anyone opening it by hand
+ *   README.md                          the same, in words — every pairing and its stands
  *   artifacts/<id>/<filename>          the model, under its original name
  *   artifacts/<id>/textures/<name>     sidecar images for models that need them
  *   artworks/<id>/<filename>           images printed on the acrylic
@@ -63,8 +63,19 @@ export type SceneSettings = {
   /** v1 — slot A's scale. */
   objectScale?: number;
   camIndex: number;
+  /** The view by name — preferred over camIndex, which shifts when a view is added. */
+  camName?: string;
+  /** Index into CAMERA_DISTANCES — D. Optional: older galleries have none. */
+  camDistance?: number;
   /** Which artwork is on the sheet; -1 is a bare sheet. */
   artIndex: number;
+  /**
+   * What stood on each pedestal and what was printed, by library id. Preferred over the
+   * slots' objectIndex and artIndex, which are positions in a list that reorders. null is
+   * an empty pedestal / bare sheet. Optional: older galleries have only the positions.
+   */
+  objectIds?: Record<SlotId, string | null>;
+  artworkId?: string | null;
 
   /** Both objects' placement, stands and turn. */
   slots?: Record<SlotId, Slot>;
@@ -189,7 +200,7 @@ export async function exportGallery(settings: SceneSettings): Promise<Blob> {
   };
 
   files['gallery.json'] = enc.encode(JSON.stringify(manifest, null, 2));
-  files['README.txt'] = enc.encode(readmeFor(manifest));
+  files['README.md'] = enc.encode(readmeFor(manifest));
 
   const zipped = await new Promise<Uint8Array>((resolve, reject) => {
     // Level 0: the payload is already-compressed JPEG and binary mesh data, so deflating
@@ -200,33 +211,85 @@ export async function exportGallery(settings: SceneSettings): Promise<Blob> {
   return new Blob([zipped as BlobPart], { type: 'application/zip' });
 }
 
+/**
+ * README.md — the same gallery in words, for anyone opening the zip by hand: every object
+ * and print, and every saved pairing with its stands. The app does not read it back;
+ * gallery.json is the record, and this is written from it.
+ */
 function readmeFor(m: Manifest): string {
   const s = m.settings;
+  const objectName = (id: string | null | undefined) =>
+    id ? (m.artifacts.find((a) => a.id === id)?.name ?? '(not in this gallery)') : '— empty —';
+  const printName = (id: string | null | undefined) =>
+    id ? (m.artworks.find((a) => a.id === id)?.name ?? '(not in this gallery)') : 'bare sheet';
+  const box = (b: { widthCm: number; lengthCm: number; heightCm: number }) =>
+    `${b.widthCm} W × ${b.lengthCm} D × ${b.heightCm} H cm`;
+
+  const describe = (
+    settings: SceneSettings,
+    objects: { A: string | null; B: string | null },
+    artworkId: string | null | undefined,
+  ): string[] => {
+    const lines = [
+      `- **Print:** ${printName(artworkId)}`,
+      `- **Sheet:** ${settings.panel.heightCm ? `${settings.panel.heightCm} H × ` : ''}${settings.panel.widthCm} W cm, bottom edge ${settings.panel.bottomCm} cm up`,
+      `- **Plinth:** ${settings.plinth?.on ? `${settings.plinth.heightCm} cm` : 'none'}`,
+    ];
+    const ids: SlotId[] = settings.twoUp ? ['A', 'B'] : ['A'];
+    for (const id of ids) {
+      const slot = settings.slots?.[id];
+      const label = settings.twoUp ? `Object ${id}` : 'Object';
+      lines.push(`- **${label}:** ${objectName(objects[id])}`);
+      if (!slot) continue;
+      const turn = Math.round(((((slot.rotationStep % 12) + 12) % 12) * 30 + slot.nudgeDeg) * 10) / 10;
+      lines.push(
+        `  - stands on: ${slot.onFloor ? 'the floor / plinth' : `pedestal ${box(slot.pedestal)}${slot.baseOn ? `, base ${box(slot.base)}` : ''}`}`,
+        `  - placed ${slot.gapCm} cm out from the sheet, ${slot.xCm} cm along; turned ${turn}°; scale ${slot.scale}×`,
+      );
+    }
+    return lines;
+  };
+
   const lines = [
-    'Reflection Viewer — exported gallery',
+    '# Reflection Viewer — exported gallery',
     '',
-    `Exported:  ${new Date(m.exportedAt).toLocaleString()}`,
-    `Objects:   ${m.artifacts.length}`,
-    `Artworks:  ${m.artworks.length}`,
+    `Exported ${new Date(m.exportedAt).toLocaleString()} · ${m.artifacts.length} objects · ${m.artworks.length} prints · ${m.setups?.length ?? 0} saved pairings`,
     '',
-    'Staged as:',
-    `  Acrylic sheet  ${s.panel?.widthCm ?? '?'} cm wide, bottom edge ${s.panel?.bottomCm ?? '?'} cm up`,
-    `  Object gap     ${s.slots?.A.gapCm ?? s.panel?.gapCm ?? '?'} cm in front of the sheet`,
-    ...(s.twoUp && s.slots ? [`  Second object  ${s.slots.B.gapCm} cm out, ${s.slots.B.xCm} cm along`] : []),
-    ...(s.station ? [`  Station        ${s.station}`] : []),
-    `  Reflectance    ${s.reflectance?.toFixed(2) ?? '?'} head-on`,
+    'Open the Reflection Viewer and use **Import gallery** to load this file. Everything',
+    'below is restored from `gallery.json`; this page is the same information for reading.',
     '',
-    'Open the Reflection Viewer and use Import gallery to load this file.',
-    'The models and artwork images are also readable directly from the',
-    'artifacts/ and artworks/ folders if you need them outside the app.',
+    '## Scene as exported',
     '',
-    'Objects:',
+    ...(s.station ? [`- **Station:** ${s.station}`] : []),
+    ...describe(
+      s,
+      s.objectIds ?? {
+        A: m.artifacts[s.slots?.A.objectIndex ?? -1]?.id ?? null,
+        B: m.artifacts[s.slots?.B.objectIndex ?? -1]?.id ?? null,
+      },
+      s.artworkId !== undefined ? s.artworkId : (m.artworks[s.artIndex]?.id ?? null),
+    ),
+    `- **Reflectance:** ${s.reflectance?.toFixed(2) ?? '?'} head-on`,
+    '',
+    '## Saved pairings',
+    '',
+    ...(m.setups?.length
+      ? m.setups.flatMap((x) => [`### ${x.name}`, '', ...describe(x.settings, x.objects, x.artworkId), ''])
+      : ['None saved. Use **Save** (right edge) to keep a pairing.', '']),
+    '## Objects',
+    '',
     ...m.artifacts.map(
-      (a) => `  - ${a.name}  (${a.format.toUpperCase()})${a.orientation ? '  — orientation corrected in the app' : ''}`,
+      (a) =>
+        `- ${a.name} (${a.format.toUpperCase()})${a.heightCm ? `, ${a.heightCm} cm tall` : ''}${a.orientation ? ' — orientation corrected in the app' : ''}`,
     ),
     '',
-    'Artworks:',
-    ...m.artworks.map((a) => `  - ${a.name}  (${a.widthPx}x${a.heightPx})`),
+    '## Prints',
+    '',
+    ...m.artworks.map((a) => `- ${a.name} (${a.widthPx}×${a.heightPx})`),
+    '',
+    'The models and images are also readable directly from the `artifacts/` and `artworks/`',
+    'folders if you need them outside the app.',
+    '',
   ];
   return lines.join('\n');
 }

@@ -37,6 +37,28 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 await page.setViewport({ width: 1400, height: 900 });
 const errors = [];
+// Chrome's Save-as picker cannot be clicked headless. Stand in for it: record the call and
+// hand what is written to an ordinary download, which CDP drops in the downloads folder.
+await page.evaluateOnNewDocument(() => {
+  window.__picked = [];
+  window.showSaveFilePicker = async (opts) => {
+    window.__picked.push(opts.suggestedName);
+    return {
+      createWritable: async () => {
+        const parts = [];
+        return {
+          write: async (b) => parts.push(b),
+          close: async () => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob(parts));
+            a.download = opts.suggestedName;
+            a.click();
+          },
+        };
+      },
+    };
+  };
+});
 page.on('pageerror', (e) => errors.push(e.message));
 
 const client = await page.createCDPSession();
@@ -74,7 +96,7 @@ await page.waitForFunction(() => document.querySelector('.hud')?.textContent?.in
 });
 await settle(2500);
 
-console.log('2. staging the scene (pedestal taller, front light on)');
+console.log('2. staging the scene (pedestal taller, wall light on)');
 for (let i = 0; i < 4; i++) await page.keyboard.press('KeyH');
 await page.keyboard.press('KeyF');
 await settle(800);
@@ -115,7 +137,7 @@ const manifest = JSON.parse(new TextDecoder().decode(entries['gallery.json']));
 console.log('    setups in manifest:', manifest.setups?.map((x) => x.name).join(', ') || 'none');
 console.log('    file:', zipPath.split('/').pop(), `(${(readFileSync(zipPath).length / 1048576).toFixed(1)} MB)`);
 console.log('    entries:', names.length, '| artifacts in manifest:', manifest.artifacts.length);
-console.log('    settings captured:', JSON.stringify(manifest.settings.pedestal), 'theme=' + manifest.settings.studioTheme, 'frontLight=' + manifest.settings.lights.front.on);
+console.log('    settings captured:', JSON.stringify(manifest.settings.pedestal), 'theme=' + manifest.settings.studioTheme, 'wallLight=' + manifest.settings.lights.wall.on);
 
 console.log('4. wiping the library');
 await page.evaluate(() => indexedDB.deleteDatabase('artifact-reflection'));
@@ -143,10 +165,10 @@ await page.screenshot({ path: join(outDir, 'restored.png') });
 // and a bare /115 cm/ would happily pass on the wrong line.
 const pedestalKept = /Pedestal\s*\d+ × \d+ × 115 cm/.test(restored);
 const themeKept = await page.$$eval('.theme-white', (n) => n.length > 0);
-const frontKept = /Front light/.test(restored);
+const frontKept = /Wall light/.test(restored);
 console.log('    pedestal height restored:', pedestalKept);
 console.log('    white room (the only room):', themeKept);
-console.log('    front light restored:', frontKept);
+console.log('    wall light restored:', frontKept);
 await page.click('.stage .gallery-tab');
 await settle(400);
 const setupsBack = await page.$$eval('.stage-setup-load', (b) => b.map((x) => x.textContent));

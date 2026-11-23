@@ -11,8 +11,11 @@ import { Environment } from './scene/Environment';
 import { CameraRig } from './scene/CameraRig';
 import { ArtifactMesh } from './scene/ArtifactMesh';
 import {
+  CAMERA_DISTANCES,
   CAMERA_PRESETS,
   ROTATION_STEP_DEG,
+  WALL_LIGHT,
+  cameraDistance,
   ROTATION_STEPS,
   STUDIO_THEMES,
 } from './scene/presets';
@@ -33,10 +36,8 @@ import { cm } from './lib/units';
 import { DropZone } from './import/DropZone';
 import { GalleryPanel } from './library/GalleryPanel';
 import { listArtifactMeta, listArtworkMeta } from './library/db';
-import { seedLibraryOnce } from './library/seed';
-import { applyStation, STATIONS } from './library/stations';
 import { refreshSetups } from './library/setups';
-import { useImportFiles } from './import/useImport';
+import { restoreScene } from './library/sceneSave';
 import './App.css';
 
 function Hud() {
@@ -54,7 +55,8 @@ function Hud() {
   const showHelp = useViewer((s) => s.showHelp);
   const showHud = useViewer((s) => s.showHud);
   const toggleHud = useViewer((s) => s.toggleHud);
-  const frontLightOn = useViewer((s) => s.lights.front?.on ?? false);
+  const wallLight = useViewer((s) => s.lights[WALL_LIGHT.id]);
+  const distance = cameraDistance(useViewer((s) => s.camDistance));
   const artifacts = useViewer((s) => s.artifacts);
   const artworks = useViewer((s) => s.artworks);
   const artIndex = useViewer((s) => s.artIndex);
@@ -86,7 +88,10 @@ function Hud() {
           <span className="hud-cam-index">
             {String((((camIndex % n) + n) % n) + 1).padStart(2, '0')}
           </span>
-          <span className="hud-cam-name">{preset.name}</span>
+          <span className="hud-cam-name">
+            {preset.name}
+            {distance.factor !== 1 && <span className="dim"> · {distance.name.toLowerCase()}</span>}
+          </span>
           {showHud && <span className="hud-cam-total">of {n}</span>}
           <span className="hud-chevron">{showHud ? '×' : '▴'}</span>
         </button>
@@ -189,10 +194,10 @@ function Hud() {
           {slot.scale.toFixed(2)}×
           {meta?.heightCm ? <span className="dim"> · {meta.heightCm} cm true height</span> : null}
         </div>
-        {frontLightOn && (
+        {wallLight?.on && (
           <div className="hud-row">
-            <span className="hud-key">Front light</span>
-            on
+            <span className="hud-key">Wall light</span>
+            on <span className="dim">· {Math.round((wallLight.intensity / WALL_LIGHT.intensity) * 100)}%</span>
           </div>
         )}
         <div className="hud-hint">Tab for controls</div>
@@ -208,6 +213,10 @@ function Hud() {
               <h3>Object</h3>
               <ul>
                 <li><b>C</b> switch camera view <span className="dim">(Shift+C back)</span></li>
+                <li>
+                  <b>D</b> camera distance —{' '}
+                  {CAMERA_DISTANCES.map((d) => d.name.toLowerCase()).join(' / ')}
+                </li>
                 <li><b>O</b> cycle object <span className="dim">(Shift+O back)</span></li>
                 <li>
                   <b>R</b> rotate {ROTATION_STEP_DEG}° <span className="dim">(Shift+R to undo)</span>
@@ -246,9 +255,14 @@ function Hud() {
               <h3>Room</h3>
               <ul>
                 <li><b>Y</b> plinth on / off</li>
-                <li><b>F</b> front light on / off</li>
+                <li>
+                  <b>F</b> wall light on / off <span className="dim">(above the sheet, lights the object's front — slider on the right while on)</span>
+                </li>
                 <li><b>Light</b> slider, right edge — five brightness steps</li>
                 <li><b>I</b> save an image <span className="dim">(PNG, scene only — or the camera button)</span></li>
+                <li>
+                  <b>Cmd+S</b> save the scene <span className="dim">(or Save, right edge — kept for next time and as a setup)</span>
+                </li>
               </ul>
             </div>
           </div>
@@ -326,32 +340,27 @@ function Objects() {
   );
 }
 
-/** StrictMode runs the load effect twice in dev; the opening station is staged once. */
-let openedOnStation = false;
-
 export default function App() {
   useKeybinds();
   const theme = useViewer((s) => s.studioTheme);
   const showStage = useViewer((s) => s.showStage);
   const setArtifacts = useViewer((s) => s.setArtifacts);
   const setArtworks = useViewer((s) => s.setArtworks);
-  const importFiles = useImportFiles();
 
   // Restore the library on load — objects and prints persist per machine, not per session.
-  // A machine with the local pairing set gets it added once (seed.ts), and the first
-  // station is staged so the app opens on a pairing rather than an empty sheet.
+  // The scene opens empty — an empty pedestal and a bare sheet — unless one was saved
+  // (Save / Cmd+S), which comes back as it was left. Nothing is preloaded: the BM38–49
+  // pairing files are fetched only when a station is chosen in the Stage panel
+  // (Nikki, 2026-11-22: "default is that it opens empty").
   useEffect(() => {
     void (async () => {
-      setArtifacts(await listArtifactMeta());
-      setArtworks(await listArtworkMeta());
+      const [artifacts, artworks] = await Promise.all([listArtifactMeta(), listArtworkMeta()]);
+      setArtifacts(artifacts);
+      setArtworks(artworks);
       void refreshSetups();
-      if (!(await seedLibraryOnce(importFiles)) || openedOnStation) return;
-      openedOnStation = true;
-      setArtifacts(await listArtifactMeta());
-      setArtworks(await listArtworkMeta());
-      await applyStation(STATIONS[0], importFiles);
+      restoreScene();
     })();
-  }, [setArtifacts, setArtworks, importFiles]);
+  }, [setArtifacts, setArtworks]);
 
   const t = STUDIO_THEMES[theme];
 
